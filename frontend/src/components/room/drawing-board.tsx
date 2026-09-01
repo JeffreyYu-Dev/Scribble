@@ -19,10 +19,10 @@ type DrawingBoardProps = {
 };
 
 /**
- * The sheet the round is drawn on: a 4:3 page of graph paper that keeps its
- * ratio while filling whatever room the layout gives it. The paper stays white
- * in both themes — strokes are drawn in ink colours that only read on white —
- * so this is the one surface that does not follow the theme tokens.
+ * The sheet the round is drawn on: a 4:3 page that keeps its ratio while
+ * filling whatever room the layout gives it. The paper stays white in both
+ * themes — strokes are drawn in ink colours that only read on white — so this
+ * is the one surface that does not follow the theme tokens.
  */
 export function DrawingBoard({ children, className }: DrawingBoardProps) {
 	return (
@@ -32,12 +32,6 @@ export function DrawingBoard({ children, className }: DrawingBoardProps) {
 				className,
 			)}
 		>
-			{/* Faint graph paper, the same grid the home page uses. */}
-			<div
-				aria-hidden
-				className="pointer-events-none absolute inset-0 bg-[radial-gradient(oklch(0.922_0_0)_1px,transparent_1px)] bg-[size:22px_22px]"
-			/>
-
 			{children ?? <BoardPlaceholder />}
 		</div>
 	);

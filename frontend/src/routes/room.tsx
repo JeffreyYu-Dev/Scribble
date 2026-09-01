@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-
+import { Canvas } from "#/components/room/canvas.tsx";
 import { ChatPanel } from "#/components/room/chat-panel.tsx";
 import { DrawingBoard } from "#/components/room/drawing-board.tsx";
 import { PlayerList } from "#/components/room/player-list.tsx";
@@ -25,20 +25,29 @@ import {
 } from "#/lib/room.ts";
 import { roomCodeSchema } from "#/lib/schemas.ts";
 
-type RoomSearch = { scribble: string };
+/** `scribble` is absent for the placeholder room, so the search is optional. */
+type RoomSearch = { scribble?: string };
+
+/** Stands in for a real code while the placeholder room is on screen. */
+const DEMO_CODE = "DEMO";
 
 export const Route = createFileRoute("/room")({
-	validateSearch: (search: Record<string, unknown>): RoomSearch => ({
-		scribble:
-			typeof search.scribble === "string"
-				? search.scribble.trim().toUpperCase()
-				: "",
-	}),
+	validateSearch: (search: Record<string, unknown>): RoomSearch => {
+		const scribble =
+			typeof search.scribble === "string" ? search.scribble.trim() : "";
+		// Dropping the key entirely (rather than keeping an empty string) is what
+		// keeps a bare visit on `/room` instead of bouncing it to `/room?scribble=`.
+		return scribble ? { scribble: scribble.toUpperCase() } : {};
+	},
 	// A redirect is all a loader can safely do here: this runs on the server for
 	// the first request, so the socket has to wait for the client. Sending a
-	// junk code home saves opening a connection that could only be refused.
+	// junk code home saves opening a connection that could only be refused. No
+	// code at all is not junk — that is the placeholder, and it stays put.
 	beforeLoad: ({ search }) => {
-		if (!roomCodeSchema.safeParse(search.scribble).success) {
+		if (
+			search.scribble !== undefined &&
+			!roomCodeSchema.safeParse(search.scribble).success
+		) {
 			throw redirect({ to: "/" });
 		}
 	},
@@ -47,6 +56,10 @@ export const Route = createFileRoute("/room")({
 
 function RoomRoute() {
 	const { scribble } = Route.useSearch();
+
+	// Without a code there is nothing to join, so the room renders as a still
+	// life off the mock data: no socket, no server, just the layout.
+	if (!scribble) return <Room code={DEMO_CODE} />;
 
 	// Keyed by code so switching rooms rebuilds the provider (and its socket)
 	// instead of reusing one pointed at the old room.
@@ -63,10 +76,10 @@ function RoomRoute() {
  * showing a room we are no longer in.
  */
 function RoomGate() {
-	const { status, error, retry } = useRoom();
+	const { code, status, error, retry } = useRoom();
 	const navigate = useNavigate();
 
-	if (status === "joined") return <Room />;
+	if (status === "joined") return <Room code={code} />;
 
 	const closed = status === "closed";
 
@@ -104,8 +117,8 @@ function RoomGate() {
  */
 const ROOM_CHROME = "9.5rem";
 
-function Room() {
-	const { code } = useRoom();
+function Room({ code }: { code: string }) {
+	const navigate = useNavigate();
 	const [tool, setTool] = useState<Tool>("pen");
 	const [color, setColor] = useState("#000000");
 	const [brush, setBrush] = useState<BrushSize>(10);
@@ -143,6 +156,7 @@ function Room() {
 				revealed={MOCK_REVEALED}
 				drawing={drawing}
 				drawerName={drawer?.name ?? "nobody"}
+				onLeave={() => navigate({ to: "/" })}
 			/>
 
 			{/*
@@ -163,7 +177,9 @@ function Room() {
 					track that shrinks once the row runs out of room.
 				*/}
 				<div className="flex w-full flex-col gap-2 lg:w-[calc((100svh-var(--room-chrome))*4/3)]">
-					<DrawingBoard />
+					<DrawingBoard>
+						<Canvas />
+					</DrawingBoard>
 					<Toolbar
 						tool={tool}
 						onToolChange={setTool}
