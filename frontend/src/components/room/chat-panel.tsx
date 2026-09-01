@@ -38,6 +38,7 @@ import {
 	MessageScrollerViewport,
 } from "#/components/ui/message-scroller.tsx";
 import type { ChatEntry } from "#/lib/room.ts";
+import { GUESS_MAX, guessSchema } from "#/lib/schemas.ts";
 import { cn } from "#/lib/utils.ts";
 
 type ChatPanelProps = {
@@ -62,9 +63,9 @@ export function ChatPanel({
 
 	function submit(event: React.FormEvent) {
 		event.preventDefault();
-		const guess = draft.trim();
-		if (!guess) return;
-		onGuess?.(guess);
+		const guess = guessSchema.safeParse(draft);
+		if (!guess.success) return;
+		onGuess?.(guess.data);
 		setDraft("");
 	}
 
@@ -101,6 +102,7 @@ export function ChatPanel({
 						<InputGroupInput
 							value={draft}
 							disabled={!canGuess}
+							maxLength={GUESS_MAX}
 							autoComplete="off"
 							spellCheck={false}
 							aria-label="Your guess"

@@ -1,11 +1,19 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { ChatPanel } from "#/components/room/chat-panel.tsx";
 import { DrawingBoard } from "#/components/room/drawing-board.tsx";
 import { PlayerList } from "#/components/room/player-list.tsx";
 import { RoomHeader } from "#/components/room/room-header.tsx";
+import { RoomProvider, useRoom } from "#/components/room/room-provider.tsx";
 import { Toolbar } from "#/components/room/toolbar.tsx";
+import { Button } from "#/components/ui/button.tsx";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "#/components/ui/empty.tsx";
 import type { BrushSize, Tool } from "#/lib/room.ts";
 import {
 	MOCK_CHAT,
@@ -15,9 +23,78 @@ import {
 	TOTAL_ROUNDS,
 	TURN_SECONDS,
 } from "#/lib/room.ts";
+import { roomCodeSchema } from "#/lib/schemas.ts";
 
-// TODO: read the room from `?scribble=` and hydrate the panels from the socket.
-export const Route = createFileRoute("/room")({ component: Room });
+type RoomSearch = { scribble: string };
+
+export const Route = createFileRoute("/room")({
+	validateSearch: (search: Record<string, unknown>): RoomSearch => ({
+		scribble:
+			typeof search.scribble === "string"
+				? search.scribble.trim().toUpperCase()
+				: "",
+	}),
+	// A redirect is all a loader can safely do here: this runs on the server for
+	// the first request, so the socket has to wait for the client. Sending a
+	// junk code home saves opening a connection that could only be refused.
+	beforeLoad: ({ search }) => {
+		if (!roomCodeSchema.safeParse(search.scribble).success) {
+			throw redirect({ to: "/" });
+		}
+	},
+	component: RoomRoute,
+});
+
+function RoomRoute() {
+	const { scribble } = Route.useSearch();
+
+	// Keyed by code so switching rooms rebuilds the provider (and its socket)
+	// instead of reusing one pointed at the old room.
+	return (
+		<RoomProvider key={scribble} code={scribble}>
+			<RoomGate />
+		</RoomProvider>
+	);
+}
+
+/**
+ * The room is only worth rendering once the server has us in it: until the join
+ * is acknowledged there is no player id, and after a close the panels would be
+ * showing a room we are no longer in.
+ */
+function RoomGate() {
+	const { status, error, retry } = useRoom();
+	const navigate = useNavigate();
+
+	if (status === "joined") return <Room />;
+
+	const closed = status === "closed";
+
+	return (
+		<main className="flex min-h-svh items-center justify-center p-4">
+			<Empty className="max-w-sm">
+				<EmptyHeader>
+					<EmptyTitle>
+						{closed ? "Room unavailable" : "Joining the room"}
+					</EmptyTitle>
+					<EmptyDescription>
+						{closed
+							? (error ?? "The connection dropped.")
+							: "Connecting to the server\u2026"}
+					</EmptyDescription>
+				</EmptyHeader>
+				{closed ? (
+					<div className="flex gap-2">
+						<Button variant="outline" onClick={() => navigate({ to: "/" })}>
+							Back home
+						</Button>
+						<Button onClick={retry}>Try again</Button>
+					</div>
+				) : null}
+			</Empty>
+		</main>
+	);
+}
 
 /**
  * Everything stacked above and below the board: page padding, the header, the
@@ -28,6 +105,7 @@ export const Route = createFileRoute("/room")({ component: Room });
 const ROOM_CHROME = "9.5rem";
 
 function Room() {
+	const { code } = useRoom();
 	const [tool, setTool] = useState<Tool>("pen");
 	const [color, setColor] = useState("#000000");
 	const [brush, setBrush] = useState<BrushSize>(10);
@@ -56,7 +134,7 @@ function Room() {
 			className="type-compact flex min-h-svh flex-col gap-2 p-2 lg:h-svh"
 		>
 			<RoomHeader
-				code="abc"
+				code={code}
 				round={2}
 				totalRounds={TOTAL_ROUNDS}
 				secondsLeft={secondsLeft}

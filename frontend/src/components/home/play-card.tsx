@@ -1,6 +1,6 @@
+import { useNavigate } from "@tanstack/react-router";
 import { ArrowRightIcon, PlusIcon, ShuffleIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-
 import { OnlineCount } from "#/components/home/online-count.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -26,53 +26,76 @@ import {
 	InputGroupInput,
 	InputGroupText,
 } from "#/components/ui/input-group.tsx";
+import { createLobby } from "#/lib/api.ts";
 import { randomName } from "#/lib/names.ts";
+import {
+	CODE_LENGTH,
+	errorOf,
+	NAME_MAX,
+	playerNameSchema,
+	roomCodeSchema,
+} from "#/lib/schemas.ts";
+import { rememberOwnership, savePlayerName } from "#/lib/storage.ts";
 
 const NAME_KEY = "scribble:name";
-const NAME_MAX = 16;
-const CODE_LENGTH = 5;
 
 export function PlayCard() {
 	const [name, setName] = useState("");
 	const [nameError, setNameError] = useState<string | null>(null);
 	const [code, setCode] = useState("");
 	const [codeError, setCodeError] = useState<string | null>(null);
+	const [creating, setCreating] = useState(false);
+	const [createError, setCreateError] = useState<string | null>(null);
 
-	// Read on the client only: the shell is server-rendered.
+	const navigate = useNavigate();
+
+	// Read on the client only: the shell is server-rendered. Whatever is in
+	// storage is untrusted -- an older build or a hand-edited value could leave
+	// something the current rules reject -- so fall back to a fresh name.
 	useEffect(() => {
-		setName(localStorage.getItem(NAME_KEY) ?? randomName());
+		const stored = playerNameSchema.safeParse(localStorage.getItem(NAME_KEY));
+		setName(stored.success ? stored.data : randomName());
 	}, []);
 
 	function commitName() {
-		const trimmed = name.trim();
-		if (!trimmed) {
-			setNameError("Pick a name before you play.");
-			return null;
-		}
-		setNameError(null);
-		localStorage.setItem(NAME_KEY, trimmed);
-		return trimmed;
+		const result = playerNameSchema.safeParse(name);
+		setNameError(errorOf(result));
+		if (!result.success) return null;
+		savePlayerName(result.data);
+		return result.data;
 	}
 
-	function handleCreate(event: React.FormEvent) {
+	async function handleCreate(event: React.FormEvent) {
 		event.preventDefault();
 		const player = commitName();
 		if (!player) return;
-		// TODO: create a lobby on the server, then route to it.
-		console.log("create lobby", { player });
+
+		setCreating(true);
+		setCreateError(null);
+		try {
+			const lobby = await createLobby(player);
+			// Kept out of the URL and handed straight to the socket on the room
+			// page: this id is what makes us the owner of the room we just made.
+			rememberOwnership(lobby.code, lobby.playerId);
+			navigate({ to: "/room", search: { scribble: lobby.code } });
+		} catch (error) {
+			setCreateError(
+				error instanceof Error ? error.message : "Could not create a lobby.",
+			);
+			setCreating(false);
+		}
 	}
 
 	function handleJoin(event: React.FormEvent) {
 		event.preventDefault();
 		const player = commitName();
-		if (code.length !== CODE_LENGTH) {
-			setCodeError(`Room codes are ${CODE_LENGTH} characters.`);
-			return;
-		}
-		setCodeError(null);
-		if (!player) return;
-		// TODO: join the lobby on the server, then route to it.
-		console.log("join lobby", { player, code });
+		const room = roomCodeSchema.safeParse(code);
+		setCodeError(errorOf(room));
+		if (!room.success || !player) return;
+
+		// Joining is just the room page with a code: whether the room exists is
+		// settled by the socket there, which is the only thing that can answer.
+		navigate({ to: "/room", search: { scribble: room.data } });
 	}
 
 	return (
@@ -132,10 +155,18 @@ export function PlayCard() {
 							)}
 						</Field>
 
-						<Button type="submit" size="lg" className="mt-4 w-full">
+						<Button
+							type="submit"
+							size="lg"
+							className="mt-4 w-full"
+							disabled={creating}
+						>
 							<PlusIcon data-icon="inline-start" />
-							Create a lobby
+							{creating ? "Creating\u2026" : "Create a lobby"}
 						</Button>
+						{createError ? (
+							<FieldError className="mt-2">{createError}</FieldError>
+						) : null}
 					</form>
 
 					<FieldSeparator>or</FieldSeparator>
