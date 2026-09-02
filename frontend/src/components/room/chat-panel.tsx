@@ -37,7 +37,7 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "#/components/ui/message-scroller.tsx";
-import type { ChatEntry } from "#/lib/room.ts";
+import type { ChatEntry } from "#/lib/room/types.ts";
 import { GUESS_MAX, guessSchema } from "#/lib/schemas.ts";
 import { cn } from "#/lib/utils.ts";
 

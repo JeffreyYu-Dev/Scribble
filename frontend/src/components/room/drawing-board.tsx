@@ -1,55 +1,89 @@
-import { PaletteIcon } from "lucide-react";
+import { useState } from "react";
 
+import { Canvas } from "#/components/room/canvas.tsx";
+import { Toolbar } from "#/components/room/toolbar.tsx";
+import type { BrushSize, BrushTool } from "#/components/room/tools.ts";
 import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "#/components/ui/empty.tsx";
+	DEFAULT_BRUSHES,
+	DEFAULT_COLOR,
+	DEFAULT_TOOL,
+} from "#/components/room/tools.ts";
+import { useDrawing } from "#/hooks/use-drawing.ts";
+import type { DrawCommand, Tool } from "#/lib/drawing/types.ts";
 import { cn } from "#/lib/utils.ts";
 
 type DrawingBoardProps = {
+	/** Everything greys out while someone else holds the pen. */
+	disabled?: boolean;
 	/**
-	 * The real <canvas>. It is stretched to fill the sheet, so keeping the
-	 * bitmap in step with the rendered size stays the canvas's own job.
+	 * Where the socket plugs in: every command drawn here, in the order it was
+	 * drawn. Commands coming the other way are played back with the `apply`
+	 * that `useDrawing` returns.
 	 */
-	children?: React.ReactNode;
+	onCommand?: (command: DrawCommand) => void;
 	className?: string;
 };
 
 /**
- * The sheet the round is drawn on: a 4:3 page that keeps its ratio while
- * filling whatever room the layout gives it. The paper stays white in both
- * themes — strokes are drawn in ink colours that only read on white — so this
- * is the one surface that does not follow the theme tokens.
+ * The board and its settings, kept together because they are one thing: the
+ * toolbar chooses the ink, the canvas spends it. The turn's tool state lives
+ * here rather than in the route, so the room only has to say who may draw.
  */
-export function DrawingBoard({ children, className }: DrawingBoardProps) {
+export function DrawingBoard({
+	disabled = false,
+	onCommand,
+	className,
+}: DrawingBoardProps) {
+	const [tool, setTool] = useState<Tool>(DEFAULT_TOOL);
+	const [color, setColor] = useState<string>(DEFAULT_COLOR);
+	// One width per brush, so switching to the eraser and back leaves the pen
+	// exactly as it was.
+	const [brushes, setBrushes] =
+		useState<Record<BrushTool, BrushSize>>(DEFAULT_BRUSHES);
+
+	const { canvas, draw } = useDrawing({
+		tool,
+		color,
+		// A fill has no width of its own; it ignores the size it is handed.
+		size: tool === "eraser" ? brushes.eraser : brushes.pen,
+		disabled,
+		onCommand,
+	});
+
 	return (
-		<div
-			className={cn(
-				"relative isolate mx-auto aspect-[4/3] w-full overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10",
-				className,
-			)}
-		>
-			{children ?? <BoardPlaceholder />}
+		<div className={cn("flex w-full flex-col gap-2", className)}>
+			<Sheet>
+				<Canvas {...canvas} disabled={disabled} />
+			</Sheet>
+
+			<Toolbar
+				tool={tool}
+				onToolChange={setTool}
+				color={color}
+				onColorChange={setColor}
+				brushes={brushes}
+				onBrushChange={(brushTool, size) =>
+					setBrushes((current) => ({ ...current, [brushTool]: size }))
+				}
+				// TODO: undo. It wants a history of commands grouped by stroke id,
+				// which is what `DrawCommand.id` is there for.
+				onClear={() => draw({ kind: "clear" })}
+				disabled={disabled}
+			/>
 		</div>
 	);
 }
 
-// TODO: remove once the real canvas is mounted as a child of <DrawingBoard>.
-function BoardPlaceholder() {
+/**
+ * The page the round is drawn on: a 4:3 sheet that keeps its ratio while
+ * filling whatever room the layout gives it. The paper stays white in both
+ * themes — strokes are drawn in ink colours that only read on white — so this
+ * is the one surface that does not follow the theme tokens.
+ */
+function Sheet({ children }: { children: React.ReactNode }) {
 	return (
-		<Empty className="absolute inset-0 text-neutral-500">
-			<EmptyHeader>
-				<EmptyMedia variant="icon">
-					<PaletteIcon />
-				</EmptyMedia>
-				<EmptyTitle className="text-neutral-700">canvas mounts here</EmptyTitle>
-				<EmptyDescription className="text-neutral-500">
-					Pass your &lt;canvas&gt; as a child of DrawingBoard.
-				</EmptyDescription>
-			</EmptyHeader>
-		</Empty>
+		<div className="relative isolate mx-auto aspect-[4/3] w-full overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
+			{children}
+		</div>
 	);
 }

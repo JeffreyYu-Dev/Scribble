@@ -7,7 +7,7 @@ import {
 } from "#/components/ui/avatar.tsx";
 import { Card, CardContent } from "#/components/ui/card.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import type { Player } from "#/lib/room.ts";
+import type { Player } from "#/lib/room/types.ts";
 import { cn } from "#/lib/utils.ts";
 
 type PlayerListProps = {
