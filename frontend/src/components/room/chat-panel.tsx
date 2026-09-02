@@ -37,12 +37,16 @@ import {
 	MessageScrollerProvider,
 	MessageScrollerViewport,
 } from "#/components/ui/message-scroller.tsx";
+import type { InkMap } from "#/lib/room/ink.ts";
+import { inkFor } from "#/lib/room/ink.ts";
 import type { ChatEntry } from "#/lib/room/types.ts";
 import { GUESS_MAX, guessSchema } from "#/lib/schemas.ts";
 import { cn } from "#/lib/utils.ts";
 
 type ChatPanelProps = {
 	entries: ChatEntry[];
+	/** The room's colours, keyed by name. Shared with the scoreboard. */
+	inks: InkMap;
 	onGuess?: (guess: string) => void;
 	/** The drawer cannot guess, and neither can anyone who already has it. */
 	canGuess?: boolean;
@@ -55,6 +59,7 @@ type ChatPanelProps = {
  */
 export function ChatPanel({
 	entries,
+	inks,
 	onGuess,
 	canGuess = true,
 	className,
@@ -86,7 +91,7 @@ export function ChatPanel({
 										messageId={entry.id}
 										scrollAnchor={entry.kind === "guess" && entry.self}
 									>
-										<ChatRow entry={entry} />
+										<ChatRow entry={entry} inks={inks} />
 									</MessageScrollerItem>
 								))}
 							</MessageScrollerContent>
@@ -126,20 +131,35 @@ export function ChatPanel({
 	);
 }
 
-function ChatRow({ entry }: { entry: ChatEntry }) {
+function ChatRow({ entry, inks }: { entry: ChatEntry; inks: InkMap }) {
 	switch (entry.kind) {
-		case "guess":
+		case "guess": {
+			// Everyone but you wears their own ink, which is the same colour the
+			// scoreboard gives them — so a guess is attributable without reading
+			// the name. Your own row is already marked by side and bubble colour.
+			const ink = inkFor(inks, entry.player);
 			return (
 				<Message align={entry.self ? "end" : "start"}>
 					<MessageAvatar>
 						<Avatar size="sm">
-							<AvatarFallback className="uppercase">
+							<AvatarFallback
+								style={entry.self ? undefined : { backgroundColor: ink }}
+								className={cn(
+									"uppercase",
+									!entry.self && "font-medium text-white",
+								)}
+							>
 								{entry.player.slice(0, 1)}
 							</AvatarFallback>
 						</Avatar>
 					</MessageAvatar>
 					<MessageContent>
-						<MessageHeader>{entry.self ? "you" : entry.player}</MessageHeader>
+						<MessageHeader
+							style={entry.self ? undefined : { color: ink }}
+							className={cn(!entry.self && "opacity-90")}
+						>
+							{entry.self ? "you" : entry.player}
+						</MessageHeader>
 						<Bubble
 							align={entry.self ? "end" : "start"}
 							variant={entry.self ? "default" : "muted"}
@@ -149,20 +169,26 @@ function ChatRow({ entry }: { entry: ChatEntry }) {
 					</MessageContent>
 				</Message>
 			);
+		}
 
 		case "correct":
 			return (
-				<Marker variant="separator" className="text-primary">
+				<Marker
+					variant="separator"
+					className="text-primary before:bg-primary/40 after:bg-primary/40"
+				>
 					<MarkerIcon>
 						<CheckIcon />
 					</MarkerIcon>
-					<MarkerContent>{entry.player} guessed the word</MarkerContent>
+					<MarkerContent className="rounded-full bg-primary/15 px-2 py-0.5 font-medium">
+						{entry.player} guessed the word
+					</MarkerContent>
 				</Marker>
 			);
 
 		case "close":
 			return (
-				<Marker>
+				<Marker className="text-ink-2">
 					<MarkerIcon>
 						<LightbulbIcon />
 					</MarkerIcon>

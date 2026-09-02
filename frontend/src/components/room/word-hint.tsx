@@ -44,7 +44,17 @@ export function WordHint({
 						<span className="text-sm font-medium tracking-widest uppercase">
 							{reveal || given.has(i) ? char : "\u00a0"}
 						</span>
-						<span className="bg-border h-px w-full" />
+						{/*
+							A blank that has been given away keeps its bar lit, so the
+							hint reads as filling in rather than as a row of gaps. The
+							drawer sees the whole word and needs no such marking.
+						*/}
+						<span
+							className={cn(
+								"h-px w-full",
+								!reveal && given.has(i) ? "bg-primary" : "bg-border",
+							)}
+						/>
 					</span>
 				),
 			)}

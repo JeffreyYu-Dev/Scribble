@@ -9,10 +9,8 @@ export const Route = createFileRoute("/")({ component: Home });
 function Home() {
 	return (
 		<main className="relative flex min-h-svh flex-col items-center justify-center gap-10 overflow-hidden px-4 py-12">
-			<GridBackdrop />
-
 			<header className="flex flex-col items-center gap-4">
-				<Badge variant="outline" className="tracking-widest uppercase">
+				<Badge className="tracking-widest uppercase">
 					draw &middot; guess &middot; repeat
 				</Badge>
 				<h1 className="relative text-4xl font-semibold tracking-tight lowercase sm:text-5xl">
@@ -24,21 +22,25 @@ function Home() {
 
 			<PlayCard />
 
-			<footer className="text-muted-foreground text-xs">
-				2&ndash;12 players &middot; 3 rounds &middot; 80 seconds a turn
+			<footer className="text-muted-foreground flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs">
+				<Stat>2&ndash;12 players</Stat>
+				<Dot />
+				<Stat>3 rounds</Stat>
+				<Dot />
+				<Stat>80 seconds a turn</Stat>
 			</footer>
 		</main>
 	);
 }
 
-/** Faint pencil-on-graph-paper grid, faded out toward the edges. */
-function GridBackdrop() {
-	return (
-		<div
-			aria-hidden
-			className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(var(--border)_1px,transparent_1px)] bg-[size:22px_22px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]"
-		/>
-	);
+/** One of the three facts under the card. */
+function Stat({ children }: { children: React.ReactNode }) {
+	return <span className="text-foreground/70">{children}</span>;
+}
+
+/** Separator between them, in the theme colour so the row is not all grey. */
+function Dot() {
+	return <span aria-hidden className="bg-primary size-1 rounded-full" />;
 }
 
 /** Hand-drawn marker stroke under the wordmark. */

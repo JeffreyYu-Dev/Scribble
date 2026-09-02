@@ -7,17 +7,18 @@ import { RoomHeader } from "#/components/room/room-header.tsx";
 import { RoomProvider, useRoom } from "#/components/room/room-provider.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
 } from "#/components/ui/empty.tsx";
 import { TOTAL_ROUNDS, TURN_SECONDS } from "#/lib/room/constants.ts";
+import { inkMap } from "#/lib/room/ink.ts";
 import {
-	MOCK_CHAT,
-	MOCK_PLAYERS,
-	MOCK_REVEALED,
-	MOCK_WORD,
+  MOCK_CHAT,
+  MOCK_PLAYERS,
+  MOCK_REVEALED,
+  MOCK_WORD,
 } from "#/lib/room/mock.ts";
 import { roomCodeSchema } from "#/lib/schemas.ts";
 
@@ -28,42 +29,42 @@ type RoomSearch = { scribble?: string };
 const DEMO_CODE = "DEMO";
 
 export const Route = createFileRoute("/room")({
-	validateSearch: (search: Record<string, unknown>): RoomSearch => {
-		const scribble =
-			typeof search.scribble === "string" ? search.scribble.trim() : "";
-		// Dropping the key entirely (rather than keeping an empty string) is what
-		// keeps a bare visit on `/room` instead of bouncing it to `/room?scribble=`.
-		return scribble ? { scribble: scribble.toUpperCase() } : {};
-	},
-	// A redirect is all a loader can safely do here: this runs on the server for
-	// the first request, so the socket has to wait for the client. Sending a
-	// junk code home saves opening a connection that could only be refused. No
-	// code at all is not junk — that is the placeholder, and it stays put.
-	beforeLoad: ({ search }) => {
-		if (
-			search.scribble !== undefined &&
-			!roomCodeSchema.safeParse(search.scribble).success
-		) {
-			throw redirect({ to: "/" });
-		}
-	},
-	component: RoomRoute,
+  validateSearch: (search: Record<string, unknown>): RoomSearch => {
+    const scribble =
+      typeof search.scribble === "string" ? search.scribble.trim() : "";
+    // Dropping the key entirely (rather than keeping an empty string) is what
+    // keeps a bare visit on `/room` instead of bouncing it to `/room?scribble=`.
+    return scribble ? { scribble: scribble.toUpperCase() } : {};
+  },
+  // A redirect is all a loader can safely do here: this runs on the server for
+  // the first request, so the socket has to wait for the client. Sending a
+  // junk code home saves opening a connection that could only be refused. No
+  // code at all is not junk — that is the placeholder, and it stays put.
+  beforeLoad: ({ search }) => {
+    if (
+      search.scribble !== undefined &&
+      !roomCodeSchema.safeParse(search.scribble).success
+    ) {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: RoomRoute,
 });
 
 function RoomRoute() {
-	const { scribble } = Route.useSearch();
+  const { scribble } = Route.useSearch();
 
-	// Without a code there is nothing to join, so the room renders as a still
-	// life off the mock data: no socket, no server, just the layout.
-	if (!scribble) return <Room code={DEMO_CODE} />;
+  // Without a code there is nothing to join, so the room renders as a still
+  // life off the mock data: no socket, no server, just the layout.
+  if (!scribble) return <Room code={DEMO_CODE} />;
 
-	// Keyed by code so switching rooms rebuilds the provider (and its socket)
-	// instead of reusing one pointed at the old room.
-	return (
-		<RoomProvider key={scribble} code={scribble}>
-			<RoomGate />
-		</RoomProvider>
-	);
+  // Keyed by code so switching rooms rebuilds the provider (and its socket)
+  // instead of reusing one pointed at the old room.
+  return (
+    <RoomProvider key={scribble} code={scribble}>
+      <RoomGate />
+    </RoomProvider>
+  );
 }
 
 /**
@@ -72,37 +73,37 @@ function RoomRoute() {
  * showing a room we are no longer in.
  */
 function RoomGate() {
-	const { code, status, error, retry } = useRoom();
-	const navigate = useNavigate();
+  const { code, status, error, retry } = useRoom();
+  const navigate = useNavigate();
 
-	if (status === "joined") return <Room code={code} />;
+  if (status === "joined") return <Room code={code} />;
 
-	const closed = status === "closed";
+  const closed = status === "closed";
 
-	return (
-		<main className="flex min-h-svh items-center justify-center p-4">
-			<Empty className="max-w-sm">
-				<EmptyHeader>
-					<EmptyTitle>
-						{closed ? "Room unavailable" : "Joining the room"}
-					</EmptyTitle>
-					<EmptyDescription>
-						{closed
-							? (error ?? "The connection dropped.")
-							: "Connecting to the server\u2026"}
-					</EmptyDescription>
-				</EmptyHeader>
-				{closed ? (
-					<div className="flex gap-2">
-						<Button variant="outline" onClick={() => navigate({ to: "/" })}>
-							Back home
-						</Button>
-						<Button onClick={retry}>Try again</Button>
-					</div>
-				) : null}
-			</Empty>
-		</main>
-	);
+  return (
+    <main className="flex min-h-svh items-center justify-center p-4">
+      <Empty className="max-w-sm">
+        <EmptyHeader>
+          <EmptyTitle>
+            {closed ? "Room unavailable" : "Joining the room"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {closed
+              ? (error ?? "The connection dropped.")
+              : "Connecting to the server\u2026"}
+          </EmptyDescription>
+        </EmptyHeader>
+        {closed ? (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate({ to: "/" })}>
+              Back home
+            </Button>
+            <Button onClick={retry}>Try again</Button>
+          </div>
+        ) : null}
+      </Empty>
+    </main>
+  );
 }
 
 /**
@@ -133,61 +134,64 @@ const ROOM_MAX_H = "68rem";
  * cap as well.
  */
 const BOARD_W =
-	"calc((min(100svh, var(--room-max-h)) - var(--room-chrome)) * 4 / 3)";
+  "calc((min(100svh, var(--room-max-h)) - var(--room-chrome)) * 4 / 3)";
 
 function Room({ code }: { code: string }) {
-	const navigate = useNavigate();
+  const navigate = useNavigate();
 
-	// TODO: placeholder clock. The server owns the turn timer; this only keeps
-	// the ring moving so the layout can be judged in motion.
-	const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
-	useEffect(() => {
-		const id = setInterval(() => {
-			setSecondsLeft((left) => (left > 0 ? left - 1 : TURN_SECONDS));
-		}, 1000);
-		return () => clearInterval(id);
-	}, []);
+  // TODO: placeholder clock. The server owns the turn timer; this only keeps
+  // the ring moving so the layout can be judged in motion.
+  const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsLeft((left) => (left > 0 ? left - 1 : TURN_SECONDS));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
-	const players = useMemo(
-		() => [...MOCK_PLAYERS].sort((a, b) => b.score - a.score),
-		[],
-	);
-	const drawer = players.find((player) => player.status === "drawing");
-	const you = players.find((player) => player.self);
-	const drawing = drawer?.self ?? false;
+  const players = useMemo(
+    () => [...MOCK_PLAYERS].sort((a, b) => b.score - a.score),
+    [],
+  );
+  // Built from the unsorted list: colours follow join order, so nobody's
+  // changes colour when the scoreboard reshuffles.
+  const inks = useMemo(() => inkMap(MOCK_PLAYERS), []);
+  const drawer = players.find((player) => player.status === "drawing");
+  const you = players.find((player) => player.self);
+  const drawing = drawer?.self ?? false;
 
-	return (
-		<div
-			style={
-				{
-					"--room-chrome": ROOM_CHROME,
-					"--room-max-w": ROOM_MAX_W,
-					"--room-max-h": ROOM_MAX_H,
-					"--board-w": BOARD_W,
-				} as React.CSSProperties
-			}
-			className="type-compact flex min-h-svh justify-center p-2 lg:h-svh lg:items-center"
-		>
-			{/*
+  return (
+    <div
+      style={
+        {
+          "--room-chrome": ROOM_CHROME,
+          "--room-max-w": ROOM_MAX_W,
+          "--room-max-h": ROOM_MAX_H,
+          "--board-w": BOARD_W,
+        } as React.CSSProperties
+      }
+      className="type-compact flex min-h-svh justify-center p-2 lg:h-svh lg:items-center"
+    >
+      {/*
 				The room proper. It is as tall as the board makes it and no
 				taller, so whatever a bigger screen has left over stays outside
 				this box as margin rather than stretching the panels.
 			*/}
-			<div className="flex w-full max-w-(--room-max-w) flex-col gap-2">
-				<RoomHeader
-					code={code}
-					round={2}
-					totalRounds={TOTAL_ROUNDS}
-					secondsLeft={secondsLeft}
-					turnSeconds={TURN_SECONDS}
-					word={MOCK_WORD}
-					revealed={MOCK_REVEALED}
-					drawing={drawing}
-					drawerName={drawer?.name ?? "nobody"}
-					onLeave={() => navigate({ to: "/" })}
-				/>
+      <div className="flex w-full max-w-(--room-max-w) flex-col gap-2">
+        <RoomHeader
+          code={code}
+          round={2}
+          totalRounds={TOTAL_ROUNDS}
+          secondsLeft={secondsLeft}
+          turnSeconds={TURN_SECONDS}
+          word={MOCK_WORD}
+          revealed={MOCK_REVEALED}
+          drawing={drawing}
+          drawerName={drawer?.name ?? "nobody"}
+          onLeave={() => navigate({ to: "/" })}
+        />
 
-				{/*
+        {/*
 					A row, not a grid: the board is sized by the height available
 					to it, so whatever width is left over is handed to the side
 					panels (`grow`) instead of becoming dead margin either side of
@@ -198,27 +202,29 @@ function Room({ code }: { code: string }) {
 					page, so the panels end where the toolbar ends. Any height the
 					board did not claim is left below the room, not inside it.
 				*/}
-				<main className="flex min-h-0 flex-col gap-2 lg:flex-row lg:items-stretch">
-					<PlayerList
-						players={players}
-						className="max-h-64 lg:max-h-none lg:shrink-0 lg:grow lg:basis-56"
-					/>
+        <main className="flex min-h-0 flex-col gap-2 lg:flex-row lg:items-stretch">
+          <PlayerList
+            players={players}
+            inks={inks}
+            className="max-h-64 lg:max-h-none lg:shrink-0 lg:grow lg:basis-56"
+          />
 
-					{/*
+          {/*
 						Board and toolbar share one column, so they always line up,
 						and this is the only track that shrinks once the row runs
 						out of room — the panels hold their width and the board
 						gives up the difference.
 					*/}
-					<DrawingBoard disabled={!drawing} className="lg:w-(--board-w)" />
+          <DrawingBoard disabled={!drawing} className="lg:w-(--board-w)" />
 
-					<ChatPanel
-						entries={MOCK_CHAT}
-						canGuess={!drawing && you?.status !== "guessed"}
-						className="h-80 lg:h-auto lg:shrink-0 lg:grow lg:basis-68"
-					/>
-				</main>
-			</div>
-		</div>
-	);
+          <ChatPanel
+            entries={MOCK_CHAT}
+            inks={inks}
+            canGuess={!drawing && you?.status !== "guessed"}
+            className="h-80 lg:h-auto lg:shrink-0 lg:grow lg:basis-68"
+          />
+        </main>
+      </div>
+    </div>
+  );
 }

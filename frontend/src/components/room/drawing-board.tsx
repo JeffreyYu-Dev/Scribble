@@ -82,7 +82,9 @@ export function DrawingBoard({
  */
 function Sheet({ children }: { children: React.ReactNode }) {
 	return (
-		<div className="relative isolate mx-auto aspect-[4/3] w-full overflow-hidden rounded-lg bg-white ring-1 ring-foreground/10">
+		// The drop shadow is what separates white paper from the tinted page
+		// behind it, now that the page is no longer white itself.
+		<div className="relative isolate mx-auto aspect-[4/3] w-full overflow-hidden rounded-lg bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.18)] ring-1 ring-foreground/10">
 			{children}
 		</div>
 	);

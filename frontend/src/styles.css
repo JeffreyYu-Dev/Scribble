@@ -36,6 +36,13 @@
 
 @theme inline {
   --font-heading: var(--font-mono);
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+  --color-ink-6: var(--ink-6);
+  --color-ink-7: var(--ink-7);
   --font-mono: 'JetBrains Mono Variable', monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -110,6 +117,20 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * Player ink. Seven hues spread around the wheel, one per name, so a player
+   * is recognisable at a glance in both the scoreboard and the chat. Kept at a
+   * lightness that carries white text, since that is how they are worn, and
+   * clear of the theme's lime so an avatar never reads as a "guessed" marker.
+   */
+  --ink-1: oklch(0.63 0.2 25);
+  --ink-2: oklch(0.7 0.16 65);
+  --ink-3: oklch(0.64 0.14 168);
+  --ink-4: oklch(0.62 0.13 200);
+  --ink-5: oklch(0.58 0.16 245);
+  --ink-6: oklch(0.56 0.18 290);
+  --ink-7: oklch(0.6 0.21 330);
 }
 
 .dark {
@@ -144,6 +165,14 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  --ink-1: oklch(0.7 0.19 25);
+  --ink-2: oklch(0.78 0.15 65);
+  --ink-3: oklch(0.72 0.13 168);
+  --ink-4: oklch(0.7 0.13 200);
+  --ink-5: oklch(0.68 0.15 245);
+  --ink-6: oklch(0.66 0.17 290);
+  --ink-7: oklch(0.68 0.19 330);
 }
 
 @layer base {
