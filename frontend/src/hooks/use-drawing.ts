@@ -7,6 +7,7 @@
  * hands every command it makes to `onCommand`, which is where the wire goes.
  */
 
+import { nanoid } from "nanoid";
 import { useCallback, useEffect, useRef } from "react";
 
 import {
@@ -82,7 +83,12 @@ export function useDrawing({
 				return;
 			}
 
-			const id = crypto.randomUUID();
+			// nanoid rather than crypto.randomUUID: the latter exists only in a
+			// secure context, and a phone opening the board over the LAN on plain
+			// http is not one — there it is simply undefined. The id never leaves
+			// the room and only has to tell one stroke from another, so an opaque
+			// string is all it ever needed to be.
+			const id = nanoid();
 			dragRef.current = { id, from: at };
 			// A single point: a click that never moves still leaves a dot.
 			draw({ kind: "stroke", id, color: ink, size, points: [at] });

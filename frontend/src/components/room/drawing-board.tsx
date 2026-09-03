@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Canvas } from "#/components/room/canvas.tsx";
 import { Toolbar } from "#/components/room/toolbar.tsx";
@@ -17,10 +17,21 @@ type DrawingBoardProps = {
 	disabled?: boolean;
 	/**
 	 * Where the socket plugs in: every command drawn here, in the order it was
-	 * drawn. Commands coming the other way are played back with the `apply`
-	 * that `useDrawing` returns.
+	 * drawn.
 	 */
 	onCommand?: (command: DrawCommand) => void;
+	/**
+	 * The other direction. The board hands over its renderer and everyone
+	 * else's strokes are played back through it, bypassing React entirely —
+	 * returns an unsubscribe, like any other subscription.
+	 */
+	subscribe?: (apply: (command: DrawCommand) => void) => () => void;
+	/**
+	 * Laid over the paper, covering it exactly. For the moments the board is
+	 * blank and something else has the floor — a round opening, a word being
+	 * picked. Positioned by whatever is passed in.
+	 */
+	overlay?: React.ReactNode;
 	className?: string;
 };
 
@@ -32,6 +43,8 @@ type DrawingBoardProps = {
 export function DrawingBoard({
 	disabled = false,
 	onCommand,
+	subscribe,
+	overlay,
 	className,
 }: DrawingBoardProps) {
 	const [tool, setTool] = useState<Tool>(DEFAULT_TOOL);
@@ -41,7 +54,7 @@ export function DrawingBoard({
 	const [brushes, setBrushes] =
 		useState<Record<BrushTool, BrushSize>>(DEFAULT_BRUSHES);
 
-	const { canvas, draw } = useDrawing({
+	const { canvas, draw, apply } = useDrawing({
 		tool,
 		color,
 		// A fill has no width of its own; it ignores the size it is handed.
@@ -50,10 +63,15 @@ export function DrawingBoard({
 		onCommand,
 	});
 
+	// Registered after `useDrawing` has blanked the sheet, so a board that
+	// mounts mid-turn is caught up onto white paper rather than a stale one.
+	useEffect(() => subscribe?.(apply), [subscribe, apply]);
+
 	return (
 		<div className={cn("flex w-full flex-col gap-2", className)}>
 			<Sheet>
 				<Canvas {...canvas} disabled={disabled} />
+				{overlay}
 			</Sheet>
 
 			<Toolbar

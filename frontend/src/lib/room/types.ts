@@ -17,6 +17,8 @@ export type Player = {
 	status: PlayerStatus;
 	/** Marks the local player so the list can label the row. */
 	self?: boolean;
+	/** Whoever holds the room: the one who picks the game and starts it. */
+	host?: boolean;
 };
 
 export type ChatEntry =

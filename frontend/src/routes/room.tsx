@@ -1,10 +1,15 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { ChatPanel } from "#/components/room/chat-panel.tsx";
-import { DrawingBoard } from "#/components/room/drawing-board.tsx";
-import { PlayerList } from "#/components/room/player-list.tsx";
-import { RoomHeader } from "#/components/room/room-header.tsx";
-import { RoomProvider, useRoom } from "#/components/room/room-provider.tsx";
+import { useEffect, useState } from "react";
+
+import { RoomLayout } from "#/components/room/room-layout.tsx";
+import {
+  RoomProvider,
+  useCanvas,
+  useChat,
+  usePlayers,
+  useRoom,
+  useTurn,
+} from "#/components/room/room-provider.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Empty,
@@ -12,8 +17,8 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "#/components/ui/empty.tsx";
+import { useCountdown } from "#/hooks/use-countdown.ts";
 import { TOTAL_ROUNDS, TURN_SECONDS } from "#/lib/room/constants.ts";
-import { inkMap } from "#/lib/room/ink.ts";
 import {
   MOCK_CHAT,
   MOCK_PLAYERS,
@@ -56,7 +61,7 @@ function RoomRoute() {
 
   // Without a code there is nothing to join, so the room renders as a still
   // life off the mock data: no socket, no server, just the layout.
-  if (!scribble) return <Room code={DEMO_CODE} />;
+  if (!scribble) return <DemoRoom />;
 
   // Keyed by code so switching rooms rebuilds the provider (and its socket)
   // instead of reusing one pointed at the old room.
@@ -73,10 +78,10 @@ function RoomRoute() {
  * showing a room we are no longer in.
  */
 function RoomGate() {
-  const { code, status, error, retry } = useRoom();
+  const { status, error, retry } = useRoom();
   const navigate = useNavigate();
 
-  if (status === "joined") return <Room code={code} />;
+  if (status === "joined") return <LiveRoom />;
 
   const closed = status === "closed";
 
@@ -90,7 +95,9 @@ function RoomGate() {
           <EmptyDescription>
             {closed
               ? (error ?? "The connection dropped.")
-              : "Connecting to the server\u2026"}
+              : status === "reconnecting"
+                ? "Lost the connection — getting you back…"
+                : "Connecting to the server…"}
           </EmptyDescription>
         </EmptyHeader>
         {closed ? (
@@ -106,41 +113,53 @@ function RoomGate() {
   );
 }
 
-/**
- * Everything stacked above and below the board: page padding, the header, the
- * toolbar and the two gaps between them. The board's width is derived from the
- * height left over once this is taken out, which is why the toolbar scrolls
- * sideways rather than wrapping — a second toolbar row would invalidate it.
- * It is rounded up a little: coming in under the viewport leaves a sliver of
- * unused floor, where coming in over it would crop the toolbar.
- */
-const ROOM_CHROME = "10rem";
+/** The room as the server sees it. Every prop below comes off one store. */
+function LiveRoom() {
+  const navigate = useNavigate();
+  const { code, owner } = useRoom();
+  const players = usePlayers();
+  const { entries, guess } = useChat();
+  const turn = useTurn();
+  const canvas = useCanvas();
 
-/**
- * The room is laid out for a 16:9 screen and stops growing either side of one:
- * past this width the extra pixels only inflate the side panels, and past this
- * height they only inflate the board. Beyond either the room holds its size and
- * sits in the middle of the page instead. The height clears a 1080p viewport,
- * which is why an ordinary 16:9 monitor never meets it.
- */
-const ROOM_MAX_W = "120rem";
-const ROOM_MAX_H = "68rem";
+  // The store holds the deadline the server gave us; the clock runs here.
+  const secondsLeft = useCountdown(turn.deadline);
 
-/**
- * The widest 4:3 board whose height still clears the fixed furniture above and
- * below it. Taken from the room's height rather than the viewport's so a tall
- * screen stops feeding the board once the room has stopped growing — and since
- * the board is what the row is measured against, this is the room's own height
- * cap as well.
- */
-const BOARD_W =
-  "calc((min(100svh, var(--room-max-h)) - var(--room-chrome)) * 4 / 3)";
+  return (
+    <RoomLayout
+      code={code}
+      players={players}
+      chat={entries}
+      round={turn.round}
+      totalRounds={turn.totalRounds}
+      secondsLeft={secondsLeft}
+      turnSeconds={turn.seconds}
+      phase={turn.phase}
+      word={turn.slots.word}
+      revealed={turn.slots.revealed}
+      reveal={turn.slots.reveal}
+      // Empty for everyone but the drawer, who is the only player the
+      // server tells what is on offer.
+      choices={turn.choices}
+      onPick={turn.pick}
+      // A drawer is what a running turn has and an idle room does not, which
+      // is what puts the room on the board or back in the lobby.
+      live={turn.drawerId !== null}
+      hosting={owner}
+      onGuess={guess}
+      onCommand={canvas.push}
+      subscribe={canvas.listen}
+      onLeave={() => navigate({ to: "/" })}
+    />
+  );
+}
 
-function Room({ code }: { code: string }) {
+/** The same room with nothing behind it, for judging it without a server. */
+function DemoRoom() {
   const navigate = useNavigate();
 
-  // TODO: placeholder clock. The server owns the turn timer; this only keeps
-  // the ring moving so the layout can be judged in motion.
+  // Placeholder clock. A real turn's deadline comes from the server; this only
+  // keeps the ring moving so the layout can be seen in motion.
   const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
   useEffect(() => {
     const id = setInterval(() => {
@@ -149,82 +168,32 @@ function Room({ code }: { code: string }) {
     return () => clearInterval(id);
   }, []);
 
-  const players = useMemo(
-    () => [...MOCK_PLAYERS].sort((a, b) => b.score - a.score),
-    [],
+  const drawing = MOCK_PLAYERS.some(
+    (player) => player.self && player.status === "drawing",
   );
-  // Built from the unsorted list: colours follow join order, so nobody's
-  // changes colour when the scoreboard reshuffles.
-  const inks = useMemo(() => inkMap(MOCK_PLAYERS), []);
-  const drawer = players.find((player) => player.status === "drawing");
-  const you = players.find((player) => player.self);
-  const drawing = drawer?.self ?? false;
 
   return (
-    <div
-      style={
-        {
-          "--room-chrome": ROOM_CHROME,
-          "--room-max-w": ROOM_MAX_W,
-          "--room-max-h": ROOM_MAX_H,
-          "--board-w": BOARD_W,
-        } as React.CSSProperties
-      }
-      className="type-compact flex min-h-svh justify-center p-2 lg:h-svh lg:items-center"
-    >
-      {/*
-				The room proper. It is as tall as the board makes it and no
-				taller, so whatever a bigger screen has left over stays outside
-				this box as margin rather than stretching the panels.
-			*/}
-      <div className="flex w-full max-w-(--room-max-w) flex-col gap-2">
-        <RoomHeader
-          code={code}
-          round={2}
-          totalRounds={TOTAL_ROUNDS}
-          secondsLeft={secondsLeft}
-          turnSeconds={TURN_SECONDS}
-          word={MOCK_WORD}
-          revealed={MOCK_REVEALED}
-          drawing={drawing}
-          drawerName={drawer?.name ?? "nobody"}
-          onLeave={() => navigate({ to: "/" })}
-        />
-
-        {/*
-					A row, not a grid: the board is sized by the height available
-					to it, so whatever width is left over is handed to the side
-					panels (`grow`) instead of becoming dead margin either side of
-					the board — which is also what keeps the row exactly as wide as
-					the header above it.
-
-					The row takes its height from the board rather than from the
-					page, so the panels end where the toolbar ends. Any height the
-					board did not claim is left below the room, not inside it.
-				*/}
-        <main className="flex min-h-0 flex-col gap-2 lg:flex-row lg:items-stretch">
-          <PlayerList
-            players={players}
-            inks={inks}
-            className="max-h-64 lg:max-h-none lg:shrink-0 lg:grow lg:basis-56"
-          />
-
-          {/*
-						Board and toolbar share one column, so they always line up,
-						and this is the only track that shrinks once the row runs
-						out of room — the panels hold their width and the board
-						gives up the difference.
-					*/}
-          <DrawingBoard disabled={!drawing} className="lg:w-(--board-w)" />
-
-          <ChatPanel
-            entries={MOCK_CHAT}
-            inks={inks}
-            canGuess={!drawing && you?.status !== "guessed"}
-            className="h-80 lg:h-auto lg:shrink-0 lg:grow lg:basis-68"
-          />
-        </main>
-      </div>
-    </div>
+    <RoomLayout
+      code={DEMO_CODE}
+      players={MOCK_PLAYERS}
+      chat={MOCK_CHAT}
+      round={2}
+      totalRounds={TOTAL_ROUNDS}
+      secondsLeft={secondsLeft}
+      turnSeconds={TURN_SECONDS}
+      // Straight to the drawing: the placeholder has no server to pick a
+      // word with, so the board is what it opens on once it is walked to.
+      phase="drawing"
+      word={MOCK_WORD}
+      revealed={MOCK_REVEALED}
+      reveal={drawing}
+      choices={[]}
+      // No server to start anything, so the placeholder opens on the lobby
+      // and is walked through to the board by hand — which is the point of
+      // it: every stage is reachable without a second player.
+      live={false}
+      hosting
+      onLeave={() => navigate({ to: "/" })}
+    />
   );
 }

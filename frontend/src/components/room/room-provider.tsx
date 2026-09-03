@@ -1,59 +1,32 @@
 /**
- * Owns the room's websocket and hands its state to everything under `/room`.
+ * Hands the room's client to everything under `/room`.
  *
  * The connection is opened in an effect rather than a route loader on purpose:
  * `WebSocket` is a browser API, and this app server-renders, so loaders run
  * where it does not exist. An effect also gives the socket the one thing a
  * loader cannot — an unmount to close on.
+ *
+ * Nothing about the game is decided here. The client is built once and the
+ * hooks below are windows onto its stores, so a component subscribes to the one
+ * slice it draws and re-renders for nothing else.
  */
 
-import {
-	createContext,
-	useCallback,
-	useContext,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
-import { SOCKET_URL } from "#/lib/api.ts";
-import { joinAckSchema } from "#/lib/schemas.ts";
-import { claimedId, playerName } from "#/lib/storage.ts";
+import { useStore } from "#/lib/net/store.ts";
+import type { RoomClient } from "#/lib/room/client.ts";
+import { createRoomClient } from "#/lib/room/client.ts";
+import { wordSlots } from "#/lib/room/round-store.ts";
 
-export type RoomStatus =
-	/** Socket opening. */
-	| "connecting"
-	/** Open, waiting for the server to acknowledge the join message. */
-	| "joining"
-	/** In the room. */
-	| "joined"
-	/** Gone, either because the server closed us or the network dropped. */
-	| "closed";
+export type { RoomStatus } from "#/lib/room/client.ts";
 
-type RoomValue = {
-	code: string;
-	status: RoomStatus;
-	/** Assigned by the server on join; `null` until then. */
-	playerId: string | null;
-	owner: boolean;
-	/** The server's reason for closing, when it gave one. */
-	error: string | null;
-	/** Open a fresh socket after a drop. */
-	retry: () => void;
-	send: (message: unknown) => void;
-};
+const RoomContext = createContext<RoomClient | null>(null);
 
-const RoomContext = createContext<RoomValue | null>(null);
-
-export function useRoom() {
-	const room = useContext(RoomContext);
-	if (!room) throw new Error("useRoom must be called inside <RoomProvider>");
-	return room;
+function useClient() {
+	const client = useContext(RoomContext);
+	if (!client) throw new Error("useRoom must be called inside <RoomProvider>");
+	return client;
 }
-
-/** Normal closure. Anything else means the room ended without us asking. */
-const CLOSE_NORMAL = 1000;
 
 export function RoomProvider({
 	code,
@@ -62,107 +35,46 @@ export function RoomProvider({
 	code: string;
 	children: React.ReactNode;
 }) {
-	const [status, setStatus] = useState<RoomStatus>("connecting");
-	const [playerId, setPlayerId] = useState<string | null>(null);
-	const [owner, setOwner] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [attempt, setAttempt] = useState(0);
+	// Built during render, not in the effect: the stores have to exist before
+	// the children that read them do. It is inert until `connect` is called.
+	const clientRef = useRef<RoomClient | null>(null);
+	if (!clientRef.current) clientRef.current = createRoomClient(code);
+	const client = clientRef.current;
 
-	const socketRef = useRef<WebSocket | null>(null);
+	useEffect(() => client.connect(), [client]);
 
-	// `attempt` is never read below: bumping it is what re-runs this effect and
-	// opens a fresh socket after a drop.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: retry trigger
-	useEffect(() => {
-		const socket = new WebSocket(SOCKET_URL);
-		socketRef.current = socket;
-
-		// Cleanup runs before the close event lands, and in development the
-		// effect is mounted twice; this keeps the torn-down socket from writing
-		// its close over the state of the one that replaced it.
-		let live = true;
-		let joined = false;
-
-		setStatus("connecting");
-		setError(null);
-
-		socket.addEventListener("open", () => {
-			if (!live) return;
-			setStatus("joining");
-			// The join has to be the first message: the server reads exactly one
-			// and closes the socket if it does not arrive.
-			socket.send(
-				JSON.stringify({
-					code,
-					username: playerName(),
-					// Only the tab that created this lobby has an id to claim.
-					// Everyone else is assigned one by the server.
-					playerId: claimedId(code) ?? undefined,
-				}),
-			);
-		});
-
-		socket.addEventListener("message", (event) => {
-			if (!live) return;
-
-			if (!joined) {
-				const ack = joinAckSchema.safeParse(safeJson(event.data));
-				if (!ack.success) {
-					setError("The server sent something we did not understand.");
-					socket.close(CLOSE_NORMAL, "bad ack");
-					return;
-				}
-				joined = true;
-				setPlayerId(ack.data.playerId);
-				setOwner(ack.data.owner);
-				setStatus("joined");
-				return;
-			}
-
-			// TODO: route game messages here once the protocol lands.
-		});
-
-		socket.addEventListener("close", (event) => {
-			if (!live) return;
-			setStatus("closed");
-			// `reason` carries the server's close message ("no such room" and
-			// friends). A drop mid-game has no reason at all.
-			setError(
-				event.reason ||
-					(event.code === CLOSE_NORMAL
-						? "You left the room."
-						: "The connection dropped."),
-			);
-		});
-
-		return () => {
-			live = false;
-			socketRef.current = null;
-			socket.close(CLOSE_NORMAL, "leaving");
-		};
-	}, [code, attempt]);
-
-	const send = useCallback((message: unknown) => {
-		const socket = socketRef.current;
-		if (socket?.readyState !== WebSocket.OPEN) return;
-		socket.send(JSON.stringify(message));
-	}, []);
-
-	const retry = useCallback(() => setAttempt((n) => n + 1), []);
-
-	const value = useMemo(
-		() => ({ code, status, playerId, owner, error, retry, send }),
-		[code, status, playerId, owner, error, retry, send],
-	);
-
-	return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
+	return <RoomContext.Provider value={client}>{children}</RoomContext.Provider>;
 }
 
-function safeJson(data: unknown) {
-	if (typeof data !== "string") return null;
-	try {
-		return JSON.parse(data);
-	} catch {
-		return null;
-	}
+/** The connection itself: are we in, who are we, and what went wrong. */
+export function useRoom() {
+	const client = useClient();
+	const connection = useStore(client.connection);
+	return { code: client.code, ...connection, retry: client.retry };
+}
+
+/** The roster, in join order. Sort it for display; the order fixes the colours. */
+export function usePlayers() {
+	return useStore(useClient().players.state);
+}
+
+/** The guess feed, oldest first, and the way to add to it. */
+export function useChat() {
+	const client = useClient();
+	return { entries: useStore(client.chat.state), guess: client.chat.guess };
+}
+
+/** The turn, the word as `WordHint` wants it, and the drawer's pick. */
+export function useTurn() {
+	const client = useClient();
+	const turn = useStore(client.round.state);
+	return { ...turn, slots: wordSlots(turn), pick: client.round.pick };
+}
+
+/**
+ * The board's channel. Deliberately not a store: it is a stable object whose
+ * strokes never pass through React at all.
+ */
+export function useCanvas() {
+	return useClient().canvas;
 }

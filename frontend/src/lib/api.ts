@@ -3,12 +3,8 @@
  * over the websocket in `room-provider.tsx`.
  */
 
+import { env } from "#/lib/env.ts";
 import { createLobbySchema } from "#/lib/schemas.ts";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
-
-/** The socket is served by the same Go process, so it follows the API origin. */
-export const SOCKET_URL = `${API_URL.replace(/^http/, "ws")}/scribble`;
 
 /**
  * Creates a lobby and returns its code plus the id that claims ownership of it.
@@ -16,7 +12,7 @@ export const SOCKET_URL = `${API_URL.replace(/^http/, "ws")}/scribble`;
  * is swept by the server rather than lingering.
  */
 export async function createLobby(username: string) {
-	const response = await fetch(`${API_URL}/lobby`, {
+	const response = await fetch(`${env.API_URL}/lobby`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ username }),
