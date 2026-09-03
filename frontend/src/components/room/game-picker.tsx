@@ -112,7 +112,7 @@ function GameTile({
       <div className="flex min-w-0 items-center gap-1.5">
         <game.icon
           style={{ "--accent": game.accent } as React.CSSProperties}
-          className="size-3 shrink-0 text-(--accent)"
+          className="size-3 shrink-0 text-accent"
         />
         <span className="truncate text-xs font-medium">{game.name}</span>
         {game.ready ? null : (

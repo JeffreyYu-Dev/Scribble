@@ -146,6 +146,7 @@ function LiveRoom() {
       // is what puts the room on the board or back in the lobby.
       live={turn.drawerId !== null}
       hosting={owner}
+      onStart={turn.start}
       onGuess={guess}
       onCommand={canvas.push}
       subscribe={canvas.listen}

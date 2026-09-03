@@ -58,6 +58,12 @@ const IDLE: Turn = {
 
 export type RoundStore = {
 	state: Store<Turn>;
+	/**
+	 * Ask for a game. The server ignores anyone but the host, and answers by
+	 * starting a turn — which is what takes every player to the board, so
+	 * there is nothing to set here.
+	 */
+	start: () => void;
 	/** Take one of the words offered. The server ignores anyone but the drawer. */
 	pick: (choice: number) => void;
 };
@@ -94,6 +100,9 @@ export function createRoundStore(
 
 	return {
 		state,
+		start() {
+			send({ type: "start" });
+		},
 		pick(choice) {
 			send({ type: "pick", choice });
 		},

@@ -21,11 +21,26 @@ export type Player = {
 	host?: boolean;
 };
 
+/**
+ * Who can read a line. `guessed` is the side channel of the players who have
+ * the word — the drawer and whoever has guessed it — which the server sends to
+ * nobody else; the panel draws those lines as the aside they are.
+ */
+export type ChatScope = "all" | "guessed";
+
 export type ChatEntry =
-	/** A guess that missed. */
-	| { id: string; kind: "guess"; player: string; text: string; self?: boolean }
+	/** A guess that missed, or anything else said in the room. */
+	| {
+			id: string;
+			kind: "guess";
+			player: string;
+			text: string;
+			self?: boolean;
+			/** Defaults to `all`; only the side channel says otherwise. */
+			scope?: ChatScope;
+	  }
 	/** A guess that landed. The word itself stays hidden from everyone else. */
-	| { id: string; kind: "correct"; player: string }
+	| { id: string; kind: "correct"; player: string; self?: boolean }
 	/** Near miss, shown only to the player who typed it. */
 	| { id: string; kind: "close"; text: string }
 	| { id: string; kind: "join" | "leave"; player: string };

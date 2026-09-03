@@ -15,39 +15,39 @@ import type { LucideIcon } from "lucide-react";
 import { PencilIcon } from "lucide-react";
 
 export type MiniGame = {
-	id: string;
-	name: string;
-	/** One line, shown under the name on the stage panel. */
-	tagline: string;
-	description: string;
-	players: { min: number; max: number };
-	icon: LucideIcon;
-	/**
-	 * The ink the placeholder art is mixed from, as a `--ink-*` step. A game
-	 * keeps its colour once it has real art: the tile falls back to this wash
-	 * behind a background that has not been drawn yet.
-	 */
-	accent: string;
-	/** Background art. Absent until one is drawn, which is what `accent` covers. */
-	art?: string;
-	/** A game still being built holds its place in the grid but cannot be started. */
-	ready: boolean;
+  id: string;
+  name: string;
+  /** One line, shown under the name on the stage panel. */
+  tagline: string;
+  description: string;
+  players: { min: number; max: number };
+  icon: LucideIcon;
+  /**
+   * The ink the placeholder art is mixed from, as a `--ink-*` step. A game
+   * keeps its colour once it has real art: the tile falls back to this wash
+   * behind a background that has not been drawn yet.
+   */
+  accent: string;
+  /** Background art. Absent until one is drawn, which is what `accent` covers. */
+  art?: string;
+  /** A game still being built holds its place in the grid but cannot be started. */
+  ready: boolean;
 };
 
 export const MINIGAMES: MiniGame[] = [
-	{
-		id: "guessing",
-		name: "Guessing",
-		tagline: "One draws, everyone else races to name it.",
-		description:
-			"A word goes to the drawer and a row of blanks to everyone else. " +
-			"Letters are given away as the clock runs down, and a guess is worth " +
-			"more the earlier it lands.",
-		players: { min: 2, max: 12 },
-		icon: PencilIcon,
-		accent: "var(--ink-3)",
-		ready: true,
-	},
+  {
+    id: "guessing",
+    name: "Guessing",
+    tagline: "One draws, everyone else races to name it.",
+    description:
+      "A word goes to the drawer and a row of blanks to everyone else. " +
+      "Letters are given away as the clock runs down, and a guess is worth " +
+      "more the earlier it lands.",
+    players: { min: 2, max: 12 },
+    icon: PencilIcon,
+    accent: "var(--ink-3)",
+    ready: true,
+  },
 ];
 
 /**
@@ -61,5 +61,5 @@ export const DEFAULT_GAME_ID = MINIGAMES[0].id;
 
 /** The game a room is on, falling back to the first rather than to nothing. */
 export function gameById(id: string): MiniGame {
-	return MINIGAMES.find((game) => game.id === id) ?? MINIGAMES[0];
+  return MINIGAMES.find((game) => game.id === id) ?? MINIGAMES[0];
 }

@@ -66,9 +66,15 @@ function toEntry(entry: WireChatEntry, selfId: string | null): ChatEntry {
 				player: entry.player,
 				text: entry.text,
 				self: entry.playerId === selfId,
+				scope: entry.scope,
 			};
 		case "correct":
-			return { id: entry.id, kind: "correct", player: entry.player };
+			return {
+				id: entry.id,
+				kind: "correct",
+				player: entry.player,
+				self: entry.playerId === selfId,
+			};
 		case "close":
 			return { id: entry.id, kind: "close", text: entry.text };
 		default:

@@ -32,6 +32,16 @@ function MessageScroller({
   )
 }
 
+/**
+ * The fade is on the top edge rather than the bottom, which is where the
+ * shadcn default puts it. A message scroller sits at its end: the newest
+ * message is the one you have to be able to read, and the history above it is
+ * what recedes. It also fails better — `scroll-fade-t` grows in as you scroll
+ * down from zero, so a viewport with nothing to scroll (and therefore no scroll
+ * timeline to drive the animation) holds at its first keyframe and shows no
+ * fade at all, where `scroll-fade-b` holds at a full one and hazes over the
+ * last message for good.
+ */
 function MessageScrollerViewport({
   className,
   ...props
@@ -40,7 +50,7 @@ function MessageScrollerViewport({
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
       className={cn(
-        "size-full min-h-0 min-w-0 scroll-fade-b scrollbar-thin scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-autoscrolling:scrollbar-thumb-transparent data-autoscrolling:scrollbar-track-transparent",
+        "size-full min-h-0 min-w-0 scroll-fade-t scrollbar-thin scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-autoscrolling:scrollbar-thumb-transparent data-autoscrolling:scrollbar-track-transparent",
         className
       )}
       {...props}

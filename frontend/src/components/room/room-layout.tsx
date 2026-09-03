@@ -63,6 +63,11 @@ type RoomLayoutProps = {
   live: boolean;
   /** Whether the local player is the one who can pick and start a game. */
   hosting: boolean;
+  /**
+   * The host asking the server for a game. Absent in the placeholder room,
+   * which has no server to ask — see the fallback where it is called.
+   */
+  onStart?: () => void;
   onGuess?: (text: string) => void;
   onCommand?: (command: DrawCommand) => void;
   subscribe?: (apply: (command: DrawCommand) => void) => () => void;
@@ -85,6 +90,7 @@ export function RoomLayout({
   onPick,
   live,
   hosting,
+  onStart,
   onGuess,
   onCommand,
   subscribe,
@@ -148,12 +154,14 @@ export function RoomLayout({
         ) : null
       }
       aside={
-        <RoomSummary
-          game={game}
-          players={players.length}
-          maxPlayers={settings.maxPlayers}
-          hosting={hosting}
-        />
+        stage === "lobby" ? (
+          <RoomSummary
+            game={game}
+            players={players.length}
+            maxPlayers={settings.maxPlayers}
+            hosting={hosting}
+          />
+        ) : null
       }
       lifted={picking}
       below={
@@ -189,10 +197,12 @@ export function RoomLayout({
           canStart={players.length >= game.players.min}
           onChange={setSettings}
           onBack={() => setStage("lobby")}
-          // TODO: tell the server. Until the protocol carries a start, the
-          // room starts itself once it is big enough — so this puts the
-          // host on the board a beat early rather than starting anything.
-          onStart={() => setStage("game")}
+          // Asking is all this does. Whether a game is on is the server's
+          // call, and it answers by starting a turn — which takes every
+          // player to the board through `live`, the host included. The
+          // fallback is the placeholder room, which has no server to ask
+          // and so walks itself over instead.
+          onStart={() => (onStart ? onStart() : setStage("game"))}
         />
       ) : (
         <GameStage
@@ -203,9 +213,13 @@ export function RoomLayout({
           // the pick is on. The box opens again for the reveal, where
           // there is nothing left to give away and plenty to say.
           drawing={drawing && phase === "drawing"}
-          canGuess={
-            phase !== "choosing" && !drawing && you?.status !== "guessed"
-          }
+          canChat={phase !== "choosing"}
+          // Whoever has the word is not silenced by having it — the drawer
+          // included, who used to have no way to say anything at all. They
+          // are moved into a channel the players still guessing cannot
+          // read, which lasts exactly as long as the guessing does: once
+          // the word is up in the reveal there is nothing left to keep.
+          ghost={phase === "drawing" && (drawing || you?.status === "guessed")}
           onGuess={onGuess}
           onCommand={onCommand}
           subscribe={subscribe}

@@ -17,8 +17,14 @@ type GameStageProps = {
 	inks: InkMap;
 	/** Whether the local player holds the pen this turn. */
 	drawing: boolean;
-	/** The drawer cannot guess, and neither can anyone who already has it. */
-	canGuess: boolean;
+	/** Whether there is anything to say: shut while the drawer is picking. */
+	canChat: boolean;
+	/**
+	 * Whether the local player already has the word — as the drawer, or by
+	 * having guessed it. What they say goes to the others who do and to nobody
+	 * else, which the panel has to show both ways round.
+	 */
+	ghost: boolean;
 	onGuess?: (text: string) => void;
 	onCommand?: (command: DrawCommand) => void;
 	subscribe?: (apply: (command: DrawCommand) => void) => () => void;
@@ -30,7 +36,8 @@ export function GameStage({
 	chat,
 	inks,
 	drawing,
-	canGuess,
+	canChat,
+	ghost,
 	onGuess,
 	onCommand,
 	subscribe,
@@ -54,7 +61,8 @@ export function GameStage({
 				entries={chat}
 				inks={inks}
 				onGuess={onGuess}
-				canGuess={canGuess}
+				canChat={canChat}
+				ghost={ghost}
 				className="h-80 lg:h-auto lg:shrink-0 lg:grow lg:basis-68"
 			/>
 		</div>

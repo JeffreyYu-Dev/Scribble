@@ -64,11 +64,19 @@ export function useChat() {
 	return { entries: useStore(client.chat.state), guess: client.chat.guess };
 }
 
-/** The turn, the word as `WordHint` wants it, and the drawer's pick. */
+/**
+ * The turn, the word as `WordHint` wants it, the host's start and the drawer's
+ * pick.
+ */
 export function useTurn() {
 	const client = useClient();
 	const turn = useStore(client.round.state);
-	return { ...turn, slots: wordSlots(turn), pick: client.round.pick };
+	return {
+		...turn,
+		slots: wordSlots(turn),
+		start: client.round.start,
+		pick: client.round.pick,
+	};
 }
 
 /**

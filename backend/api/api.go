@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"scribble/backend/internal/game"
 	"scribble/backend/internal/tools"
 	"slices"
@@ -19,14 +20,15 @@ import (
 	"github.com/coder/websocket/wsjson"
 )
 
-// this should contain stuff about the server ig
-
+// ScribbleServer is the HTTP and websocket surface. It owns the room index and
+// nothing else: a room runs itself, and everything about a game happens inside
+// one. What is left here is finding the right room for a socket and pumping
+// bytes between the two.
 type ScribbleServer struct {
-	// store all of the rooms in here?
 	logf func(f string, v ...any)
 
-	// mu guards Rooms, byCode, conns, and the contents of each Room: every
-	// request and every websocket runs in its own goroutine.
+	// mu guards the two indexes and the connection set. The rooms behind them
+	// have their own goroutines and need no help from it.
 	mu    sync.Mutex
 	Rooms map[uuid.UUID]*game.Room
 	// byCode indexes the same rooms by the code players type in.
@@ -42,7 +44,7 @@ func NewScribbleServer() *ScribbleServer {
 		Rooms:   make(map[uuid.UUID]*game.Room),
 		byCode:  make(map[string]*game.Room),
 		conns:   make(map[*websocket.Conn]struct{}),
-		origins: devOrigins,
+		origins: allowedOrigins(),
 	}
 	ss.routes()
 	return ss
@@ -59,46 +61,68 @@ type CreateLobbyResponse struct {
 	PlayerId uuid.UUID `json:"playerId"`
 }
 
-// JoinRequest is the first message a client sends after connecting. Sending
-// it over the socket instead of the URL keeps the player id out of browser
-// history and request logs.
-type JoinRequest struct {
-	Code     string `json:"code"`
-	Username string `json:"username"`
-	// PlayerId is the id POST /lobby issued to the room's creator. Empty for
-	// everyone else, who are assigned a fresh id on join.
-	PlayerId string `json:"playerId,omitempty"`
-}
+const (
+	// joinTimeout bounds how long a connected client may sit without
+	// identifying itself, so an idle socket cannot hold a slot open forever.
+	joinTimeout = 10 * time.Second
 
-// JoinResponse confirms the join and tells the client which player it is.
-type JoinResponse struct {
-	PlayerId uuid.UUID `json:"playerId"`
-	Code     string    `json:"code"`
-	Owner    bool      `json:"owner"`
-}
+	// codeAttempts bounds how many times room creation retries on a code that
+	// is already in use before giving up.
+	codeAttempts = 10
 
-// joinTimeout bounds how long a connected client may sit without identifying
-// itself, so an idle socket cannot hold a slot open forever.
-const joinTimeout = 10 * time.Second
+	// readLimit is the largest frame a client may send. A batched stroke is by
+	// far the biggest of them, and the library's default is smaller than one.
+	readLimit = 256 << 10
 
-// codeAttempts bounds how many times room creation retries on a code that is
-// already in use before giving up.
-const codeAttempts = 10
+	// usernameMax has to match NAME_MAX in the frontend's schemas.ts.
+	usernameMax = 16
+
+	// A socket that has gone quiet is otherwise invisible until its player is
+	// expected to do something, which in a drawing game can be a whole turn.
+	pingInterval = 30 * time.Second
+	pingTimeout  = 10 * time.Second
+	writeTimeout = 10 * time.Second
+)
 
 // devOrigins are the browser origins allowed to call this server. The frontend
 // runs on its own port in development, so requests are cross-origin: without
 // these the fetch is blocked by CORS and the websocket handshake is rejected.
 var devOrigins = []string{"http://localhost:3000", "http://127.0.0.1:3000"}
 
+// originsEnv names the variable that adds origins to the defaults, comma
+// separated. Playing over a LAN is the case that needs it: the other players'
+// browsers load the frontend from this machine's address rather than from
+// localhost, and to a browser that is a different origin no matter that it is
+// the same server. Listed rather than inferred, because "anything on this
+// network" is not a call this server can make on its own.
+const originsEnv = "SCRIBBLE_ORIGINS"
+
+// allowedOrigins is the defaults plus whatever originsEnv names.
+func allowedOrigins() []string {
+	origins := slices.Clone(devOrigins)
+	for _, origin := range strings.Split(os.Getenv(originsEnv), ",") {
+		// A trailing slash is easy to paste in and would never match: an Origin
+		// header carries a scheme, a host and a port, and nothing after them.
+		origin = strings.TrimSuffix(strings.TrimSpace(origin), "/")
+		if origin != "" && !slices.Contains(origins, origin) {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
 // createRoom makes a room and registers it under a code no live room is
 // already using. Without the check a collision would overwrite byCode and
 // strand the older room: unreachable, but still holding its players.
-func (ss *ScribbleServer) createRoom() (*game.Room, error) {
+func (ss *ScribbleServer) createRoom(owner uuid.UUID) (*game.Room, error) {
 	for range codeAttempts {
 		room, err := game.CreateRoom()
 		if err != nil {
 			return nil, err
 		}
+		// Reserved before the room is started: afterwards this field belongs to
+		// the room's own goroutine.
+		room.SetOwner(owner)
 
 		ss.mu.Lock()
 		_, taken := ss.byCode[room.Code]
@@ -108,9 +132,14 @@ func (ss *ScribbleServer) createRoom() (*game.Room, error) {
 		}
 		ss.mu.Unlock()
 
-		if !taken {
-			return room, nil
+		if taken {
+			continue
 		}
+
+		// Started only once it is findable, so a room cannot drop itself from
+		// an index it has not been put in yet.
+		room.Start(func() { ss.removeRoom(room) })
+		return room, nil
 	}
 	return nil, errors.New("no free room code")
 }
@@ -123,55 +152,35 @@ func (ss *ScribbleServer) roomByCode(code string) (*game.Room, bool) {
 	return room, ok
 }
 
+// removeRoom drops a room from both indexes. Called by the room itself, once,
+// as it stops.
+func (ss *ScribbleServer) removeRoom(room *game.Room) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	ss.deleteRoomLocked(room)
+	ss.logf("room %v closed", room.Code)
+}
+
 // deleteRoomLocked drops a room from both indexes. Callers must hold mu.
 func (ss *ScribbleServer) deleteRoomLocked(room *game.Room) {
 	delete(ss.Rooms, room.Id)
 	delete(ss.byCode, room.Code)
 }
 
-// joinRoom adds a connected player to a room. If the reserved owner never
-// turned up, the room is handed to whoever is actually here.
-func (ss *ScribbleServer) joinRoom(room *game.Room, player *game.Player) {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	room.AddPlayer(player)
-
-	if _, ok := room.Players[room.Owner]; !ok {
-		room.PromoteOwner()
-	}
-}
-
-// removePlayer drops a player from its room, deleting the whole room once the
-// last player leaves. If the owner was the one leaving, a remaining player is
-// promoted so a live room always has an owner.
-func (ss *ScribbleServer) removePlayer(room *game.Room, playerId uuid.UUID) {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	room.RemovePlayer(playerId)
-
-	if len(room.Players) == 0 {
-		ss.deleteRoomLocked(room)
-		ss.logf("room %v is empty, removed", room.Code)
-		return
-	}
-
-	if room.Owner == playerId {
-		room.PromoteOwner()
-	}
-}
-
 // Sweep drops rooms that have sat empty for longer than grace: lobbies that
-// were created but never joined. Rooms with players are never touched, so an
-// in-progress game outlives any grace period. It returns how many it removed.
+// were created but never joined. A room with players in it stops itself when
+// the last one leaves, so an in-progress game is never touched here. It returns
+// how many it removed.
 func (ss *ScribbleServer) Sweep(grace time.Duration) int {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	removed := 0
 	for _, room := range ss.Rooms {
-		if len(room.Players) == 0 && time.Since(room.CreatedAt) > grace {
+		if room.Population() == 0 && time.Since(room.CreatedAt) > grace {
+			// Shutdown only closes a channel, so this does not wait on the
+			// room's goroutine — which will want this very lock on its way out.
+			room.Shutdown()
 			ss.deleteRoomLocked(room)
 			removed++
 		}
@@ -195,21 +204,28 @@ func (ss *ScribbleServer) removeConn(conn *websocket.Conn) {
 	delete(ss.conns, conn)
 }
 
-// Close tells every connected client the server is going away and drops all
-// room state. Safe to call more than once.
+// Close tells every connected client the server is going away and stops every
+// room. Safe to call more than once.
 func (ss *ScribbleServer) Close() {
 	ss.mu.Lock()
 	conns := make([]*websocket.Conn, 0, len(ss.conns))
 	for conn := range ss.conns {
 		conns = append(conns, conn)
 	}
+	rooms := make([]*game.Room, 0, len(ss.Rooms))
+	for _, room := range ss.Rooms {
+		rooms = append(rooms, room)
+	}
 	clear(ss.conns)
 	clear(ss.Rooms)
 	clear(ss.byCode)
 	ss.mu.Unlock()
 
-	// Closed outside the lock: this writes a close frame, and each handler
-	// calls removeConn on its way out.
+	// Both loops run outside the lock: closing a socket writes a close frame,
+	// and each handler calls removeConn on its way out.
+	for _, room := range rooms {
+		room.Shutdown()
+	}
 	for _, conn := range conns {
 		conn.Close(websocket.StatusGoingAway, "server shutting down")
 	}
@@ -217,122 +233,173 @@ func (ss *ScribbleServer) Close() {
 
 // routes registers every endpoint on the server's own mux.
 func (ss *ScribbleServer) routes() {
-	ss.serveMux.HandleFunc("POST /lobby", func(w http.ResponseWriter, r *http.Request) {
-		// take the body from the request and write back the room code after creating the lobby
+	ss.serveMux.HandleFunc("POST /lobby", ss.createLobby)
+	ss.serveMux.HandleFunc("/scribble", ss.scribble)
+}
 
-		var body Player
+func (ss *ScribbleServer) createLobby(w http.ResponseWriter, r *http.Request) {
+	var body Player
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		ss.logf("%v", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
 
-		err := json.NewDecoder(r.Body).Decode(&body)
+	if strings.TrimSpace(body.Username) == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
 
-		if err != nil {
-			ss.logf("%v", err)
-			http.Error(w, "Invalid request", http.StatusBadRequest)
-			return
-		}
+	// The creator is not a player yet: they become one when their socket
+	// connects. Until then the room is empty and the sweeper can reclaim it.
+	// All that exists now is the id that lets them claim ownership.
+	ownerId := uuid.New()
 
-		if strings.TrimSpace(body.Username) == "" {
-			http.Error(w, "Username is required", http.StatusBadRequest)
-			return
-		}
+	room, err := ss.createRoom(ownerId)
+	if err != nil {
+		ss.logf("%v", err)
+		http.Error(w, "Could not generate code", http.StatusInternalServerError)
+		return
+	}
 
-		// create the rooom
+	res := CreateLobbyResponse{Code: room.Code, PlayerId: ownerId}
+	if err := tools.WriteJSON(w, http.StatusCreated, res); err != nil {
+		ss.logf("%v", err)
+	}
+}
 
-		newRoom, err := ss.createRoom()
-		if err != nil {
-			ss.logf("%v", err)
-			http.Error(w, "Could not generate code", http.StatusInternalServerError)
-			return
-		}
-
-		// The creator is not a player yet: they become one when their socket
-		// connects. Until then the room is empty and the sweeper can reclaim
-		// it. We only reserve the id that lets them claim ownership.
-		ownerId := uuid.New()
-		newRoom.SetOwner(ownerId)
-
-		res := CreateLobbyResponse{Code: newRoom.Code, PlayerId: ownerId}
-		if err := tools.WriteJSON(w, http.StatusCreated, res); err != nil {
-			ss.logf("%v", err)
-		}
-
+// scribble is the game socket. It reads the join, hands the player to their
+// room, and then does nothing but carry bytes in both directions: everything
+// the frames mean is decided inside the room.
+func (ss *ScribbleServer) scribble(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: ss.originPatterns(),
 	})
-	ss.serveMux.HandleFunc("/scribble", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-			OriginPatterns: ss.originPatterns(),
-		})
+	if err != nil {
+		ss.logf("%v", err)
+		return
+	}
+	defer conn.CloseNow()
+	conn.SetReadLimit(readLimit)
 
+	ss.addConn(conn)
+	defer ss.removeConn(conn)
+
+	room, player, err := ss.join(r.Context(), conn)
+	if err != nil {
+		// Reported as a close frame: the HTTP response is already spent.
+		conn.Close(websocket.StatusPolicyViolation, err.Error())
+		return
+	}
+	// The room is dropped here once its last player disconnects.
+	defer room.Leave(player)
+
+	ss.logf("%v joined room %v", player.Username, room.Code)
+
+	// One goroutine writes and this one reads: a websocket takes one writer at
+	// a time, and the room must never have to wait on a socket.
+	ctx, stop := context.WithCancel(r.Context())
+	defer stop()
+	go writeFrames(ctx, conn, player)
+
+	for {
+		_, data, err := conn.Read(ctx)
 		if err != nil {
-			ss.logf("%v", err)
 			return
 		}
+		room.Receive(player, data)
+	}
+}
 
-		defer conn.CloseNow()
+// join reads the client's first message and puts it in a room. The error is
+// what the client is told on the way out, so it is written for them.
+func (ss *ScribbleServer) join(
+	ctx context.Context,
+	conn *websocket.Conn,
+) (*game.Room, *game.Player, error) {
+	joinCtx, cancel := context.WithTimeout(ctx, joinTimeout)
+	defer cancel()
 
-		ss.addConn(conn)
-		defer ss.removeConn(conn)
+	var request game.JoinRequest
+	if err := wsjson.Read(joinCtx, conn, &request); err != nil {
+		ss.logf("join: %v", err)
+		return nil, nil, errors.New("expected a join message")
+	}
 
-		// The client identifies itself in its first message. Failures here are
-		// reported as close frames, since the HTTP response is already spent.
-		joinCtx, cancel := context.WithTimeout(r.Context(), joinTimeout)
-		defer cancel()
+	code := strings.ToUpper(strings.TrimSpace(request.Code))
+	username := strings.TrimSpace(request.Username)
+	if code == "" || username == "" {
+		return nil, nil, errors.New("code and username are required")
+	}
+	if runes := []rune(username); len(runes) > usernameMax {
+		username = string(runes[:usernameMax])
+	}
 
-		var join JoinRequest
-		if err := wsjson.Read(joinCtx, conn, &join); err != nil {
-			ss.logf("join: %v", err)
-			conn.Close(websocket.StatusPolicyViolation, "expected a join message")
-			return
+	// The creator sends back the id from POST /lobby; the room decides whether
+	// it matches the one it is holding. Everyone else claims nothing.
+	claim := uuid.Nil()
+	if request.PlayerId != "" {
+		parsed, err := uuid.Parse(request.PlayerId)
+		if err != nil {
+			return nil, nil, errors.New("invalid player id")
 		}
+		claim = parsed
+	}
 
-		code := strings.ToUpper(strings.TrimSpace(join.Code))
-		username := strings.TrimSpace(join.Username)
-		if code == "" || username == "" {
-			conn.Close(websocket.StatusPolicyViolation, "code and username are required")
+	room, ok := ss.roomByCode(code)
+	if !ok {
+		return nil, nil, errors.New("no such room")
+	}
+
+	// A room can stop between being found and being joined: the code was live a
+	// moment ago, and its last player has since left.
+	player, _, err := room.Join(username, claim)
+	if err != nil {
+		return nil, nil, errors.New("no such room")
+	}
+
+	return room, player, nil
+}
+
+// writeFrames is the only thing that writes to this socket. It ends when the
+// room is done with the player, when a write fails, or when the reader stops.
+func writeFrames(ctx context.Context, conn *websocket.Conn, player *game.Player) {
+	// Closing the socket is what unblocks the reader, so this has to happen
+	// however the loop ends.
+	defer conn.CloseNow()
+
+	ping := time.NewTicker(pingInterval)
+	defer ping.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
 
-		room, ok := ss.roomByCode(code)
-		if !ok {
-			conn.Close(websocket.StatusPolicyViolation, "no such room")
-			return
-		}
-
-		// The creator sends back the id from POST /lobby; matching the
-		// reserved owner is what makes them the owner. Everyone else joins
-		// under a fresh id.
-		playerId := uuid.New()
-		if join.PlayerId != "" {
-			claimed, err := uuid.Parse(join.PlayerId)
-			if err != nil {
-				conn.Close(websocket.StatusPolicyViolation, "invalid player id")
+		case data, ok := <-player.Frames():
+			if !ok {
+				conn.Close(websocket.StatusNormalClosure, "")
 				return
 			}
-			if claimed == room.Owner {
-				playerId = claimed
+			if err := write(ctx, conn, data); err != nil {
+				return
 			}
-		}
 
-		player := game.CreatePlayerWithId(playerId, username)
-		ss.joinRoom(room, player)
-		// The room is dropped here once its last player disconnects.
-		defer ss.removePlayer(room, player.Id)
-
-		ss.logf("%v joined room %v", player.Username, room.Code)
-
-		res := JoinResponse{PlayerId: player.Id, Code: room.Code, Owner: room.Owner == player.Id}
-		if err := wsjson.Write(r.Context(), conn, res); err != nil {
-			ss.logf("join ack: %v", err)
-			return
-		}
-
-		for {
-			// TODO: route the message once the protocol exists.
-			_, _, err := conn.Read(r.Context())
+		case <-ping.C:
+			pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+			err := conn.Ping(pingCtx)
+			cancel()
 			if err != nil {
-				ss.logf("read: %v", err)
 				return
 			}
 		}
-	})
+	}
+}
+
+func write(ctx context.Context, conn *websocket.Conn, data []byte) error {
+	writeCtx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+	return conn.Write(writeCtx, websocket.MessageText, data)
 }
 
 // originPatterns is the host:port form websocket.Accept matches against.

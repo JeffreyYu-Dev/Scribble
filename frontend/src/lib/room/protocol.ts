@@ -54,6 +54,15 @@ const playerSchema = z.object({
 });
 
 /**
+ * Who a line was written for. `guessed` is the side channel the players who
+ * have the word talk in — the drawer, and everyone who has already guessed it —
+ * and the server sends those lines to nobody else. It arrives so the panel can
+ * say as much: the people reading a hidden line are the ones who need to know
+ * that the players still guessing cannot see it.
+ */
+const scopeSchema = z.enum(["all", "guessed"]).default("all");
+
+/**
  * One line of the feed. `close` is only ever sent to the player who typed it,
  * and `correct` carries no text, so the word never reaches a guesser through
  * the transcript.
@@ -65,6 +74,7 @@ const chatEntrySchema = z.discriminatedUnion("kind", [
 		playerId: z.string(),
 		player: z.string(),
 		text: z.string(),
+		scope: scopeSchema,
 	}),
 	z.object({
 		kind: z.literal("correct"),
@@ -184,6 +194,12 @@ export type ClientMessage =
 	 * created the lobby, and is what claims ownership of it.
 	 */
 	| { type: "join"; code: string; username: string; playerId?: string }
+	/**
+	 * The host asking for a game. It carries nothing — the room already knows
+	 * which game and who is in it — and the server ignores it from anyone but
+	 * the host. Nothing else starts a room: it does not start itself.
+	 */
+	| { type: "start" }
 	| { type: "guess"; text: string }
 	/** The drawer taking one of the words offered, by its index in `choices`. */
 	| { type: "pick"; choice: number }
