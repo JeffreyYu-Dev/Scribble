@@ -9,6 +9,7 @@ import {
 	type LucideIcon,
 	PaintBucketIcon,
 	PencilIcon,
+	Redo2Icon,
 	Trash2Icon,
 	Undo2Icon,
 } from "lucide-react";
@@ -31,6 +32,7 @@ export const TOOLS = [
 /** Not settings but buttons: these change the paper rather than the brush. */
 export const ACTIONS = {
 	undo: { label: "undo", icon: Undo2Icon },
+	redo: { label: "redo", icon: Redo2Icon },
 	clear: { label: "clear canvas", icon: Trash2Icon },
 } as const satisfies Record<string, { label: string; icon: LucideIcon }>;
 
@@ -73,7 +75,14 @@ export const PALETTE = [
 ] as const;
 
 export const DEFAULT_TOOL: Tool = "pen";
+
+/**
+ * The two inks a brush is loaded with. The left button lays down the first and
+ * the right button the second, so a drawer can keep a fill colour and its
+ * outline under one hand instead of crossing the tray between every stroke.
+ */
 export const DEFAULT_COLOR = "#000000";
+export const DEFAULT_SECONDARY = "#ffffff";
 
 /** The pen and the eraser each remember their own width. */
 export const DEFAULT_BRUSHES: Record<BrushTool, BrushSize> = {

@@ -110,7 +110,7 @@ export function PlayCard() {
 
       <CardContent>
         <FieldGroup>
-          <form onSubmit={handleCreate}>
+          <form onSubmit={handleJoin} className="flex flex-col gap-4">
             <Field data-invalid={nameError ? true : undefined}>
               <FieldLabel htmlFor="name">Display name</FieldLabel>
               <InputGroup>
@@ -147,23 +147,6 @@ export function PlayCard() {
               {nameError && <FieldError>{nameError}</FieldError>}
             </Field>
 
-            <Button
-              type="submit"
-              size="lg"
-              className="mt-4 w-full"
-              disabled={creating}
-            >
-              <PlusIcon data-icon="inline-start" />
-              {creating ? "Creating\u2026" : "Create a lobby"}
-            </Button>
-            {createError ? (
-              <FieldError className="mt-2">{createError}</FieldError>
-            ) : null}
-          </form>
-
-          <FieldSeparator>or</FieldSeparator>
-
-          <form onSubmit={handleJoin}>
             <Field data-invalid={codeError ? true : undefined}>
               <FieldLabel htmlFor="code">Join with a room code</FieldLabel>
               <InputGroup>
@@ -202,6 +185,23 @@ export function PlayCard() {
               </InputGroup>
               {codeError ? <FieldError>{codeError}</FieldError> : null}
             </Field>
+          </form>
+
+          <FieldSeparator>or</FieldSeparator>
+
+          <form onSubmit={handleCreate}>
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={creating}
+            >
+              <PlusIcon data-icon="inline-start" />
+              {creating ? "Creating\u2026" : "Create a lobby"}
+            </Button>
+            {createError ? (
+              <FieldError className="mt-2">{createError}</FieldError>
+            ) : null}
           </form>
         </FieldGroup>
       </CardContent>

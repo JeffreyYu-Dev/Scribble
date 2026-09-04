@@ -234,7 +234,9 @@ func TestTheWordReachesTheDrawerAndNobodyElse(t *testing.T) {
 		t.Fatalf("hint %q does not fit %q", hint, word)
 	}
 	for i, char := range []rune(hint) {
-		if char != Hidden && char != ' ' {
+		// A separator was never hidden — see `mask`. It is the shape of the
+		// answer rather than a letter of it, and giving it away gives nothing.
+		if char != Hidden && !separator(char) {
 			t.Fatalf("hint %q gives away position %d before the turn starts", hint, i)
 		}
 	}
@@ -457,6 +459,44 @@ func TestStrokesGoToEveryoneButTheDrawer(t *testing.T) {
 	}
 }
 
+func TestUndoIsRelayedAndKept(t *testing.T) {
+	room := newRoom(t)
+	alice := join(t, room, "alice")
+	bob := join(t, room, "bob")
+
+	drawer, _ := turn(t, room)
+	drawing, watching := alice, bob
+	if drawer == bob.Id {
+		drawing, watching = bob, alice
+	}
+
+	body, _ := json.Marshal(clientMessage{Type: "draw", Commands: []DrawCommand{
+		{Kind: "stroke", Id: "s1", Color: "#000000", Size: 8, Points: []Point{{X: 1, Y: 2}}},
+		{Kind: "undo"},
+	}})
+
+	drain(drawing)
+	drain(watching)
+	room.Receive(drawing, body)
+
+	// Relayed rather than applied: the server does not decide what an undo comes
+	// to, it only makes sure everyone is told about it.
+	commands := recv(t, watching, "draw")["commands"].([]any)
+	if len(commands) != 2 {
+		t.Fatalf("got %v, want the stroke and the undo", commands)
+	}
+	if kind := commands[1].(map[string]any)["kind"]; kind != "undo" {
+		t.Fatalf("second command is %v, want the undo", kind)
+	}
+
+	// And both are kept, so a player arriving mid-turn replays them and lands on
+	// the same board as everyone else.
+	late := join(t, room, "carol")
+	if kept := recv(t, late, "canvas")["commands"].([]any); len(kept) != 2 {
+		t.Fatalf("late joiner got %v, want the stroke and the undo", kept)
+	}
+}
+
 func TestMalformedFramesAreIgnored(t *testing.T) {
 	room := newRoom(t)
 	alice := join(t, room, "alice")
@@ -662,8 +702,8 @@ func TestHintsAreGivenAwayAsTheClockRunsDown(t *testing.T) {
 
 	given := 0
 	for i, char := range []rune(hint) {
-		// Spaces were never hidden, so they are not a letter given away.
-		if char == Hidden || char == ' ' {
+		// Separators were never hidden, so they are not letters given away.
+		if char == Hidden || separator(char) {
 			continue
 		}
 		given++

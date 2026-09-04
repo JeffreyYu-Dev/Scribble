@@ -2,9 +2,6 @@ package game
 
 import "math/rand/v2"
 
-// words are short, concrete nouns: things a player can recognise from a shape
-// rather than have to spell out. Anything abstract makes for a turn nobody can
-// draw and nobody can guess.
 var words = []string{
 	"anchor", "avocado", "backpack", "balloon", "bicycle", "birdhouse",
 	"bonfire", "bridge", "bucket", "butterfly", "cactus", "camera", "campfire",

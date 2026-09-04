@@ -13,7 +13,7 @@
  * out of the mock file.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { GamePicker } from "#/components/room/game-picker.tsx";
 import { GameStage } from "#/components/room/game-stage.tsx";
@@ -34,6 +34,13 @@ import type { ChatEntry, Player } from "#/lib/room/types.ts";
 
 /** Lobby and settings are the host walking towards a game; `game` is the game. */
 type Stage = "lobby" | "settings" | "game";
+
+/**
+ * How long the podium holds the board once a game is over. Long enough to read
+ * three names and watch the scores run up, short enough that a room wanting
+ * another game is not made to sit through it.
+ */
+const RESULTS_MS = 8000;
 
 type RoomLayoutProps = {
   code: string;
@@ -103,9 +110,46 @@ export function RoomLayout({
   // lifts it away, so the lobby is still what the room is on underneath.
   const [picking, setPicking] = useState(false);
 
+  /**
+   * Where the game that has just finished has got to: `showing` while the
+   * podium is up, `leaving` once its few seconds are done. The room stays on
+   * the board through both, because that is where the podium is.
+   */
+  const [ending, setEnding] = useState<"none" | "showing" | "leaving">("none");
+  /** Whether there is a game running for the room to be at the end of. */
+  const played = useRef(false);
+
   // Only on the edge, not on every render: between the two the host is free to
   // be halfway through the settings without being dragged back to the lobby.
-  useEffect(() => setStage(live ? "game" : "lobby"), [live]);
+  useEffect(() => {
+    if (live) {
+      played.current = true;
+      setEnding("none");
+      setStage("game");
+      return;
+    }
+
+    // A room that was mid-game a moment ago has just finished one, and how it
+    // finished is worth more than the lobby it would otherwise snap back to.
+    // A room that was already idle — someone arriving after the last game
+    // ended, or reconnecting into a room between them — has no result to show.
+    if (played.current) {
+      played.current = false;
+      setEnding("showing");
+      return;
+    }
+
+    setStage("lobby");
+  }, [live]);
+
+  // The podium's own clock. The server has nothing to say here: it called the
+  // game over and moved on, and how long the room looks at the result is the
+  // room's business.
+  useEffect(() => {
+    if (ending !== "showing") return;
+    const id = setTimeout(() => setEnding("leaving"), RESULTS_MS);
+    return () => clearTimeout(id);
+  }, [ending]);
 
   const game = gameById(gameId);
   // Built from the roster as given, not from the scoreboard's order: colours
@@ -128,7 +172,9 @@ export function RoomLayout({
       roster={stage === "game" ? "game" : "lobby"}
       onLeave={onLeave}
       status={
-        stage === "game" ? (
+        // Nothing left to count once the game is over: the clock comes down
+        // with the last turn rather than sitting at zero behind the podium.
+        stage === "game" && ending === "none" ? (
           <TurnClock
             round={round}
             totalRounds={totalRounds}
@@ -233,8 +279,26 @@ export function RoomLayout({
               choices={choices}
               secondsLeft={secondsLeft}
               seconds={turnSeconds}
+              // The word itself, and only once everyone may have it: `reveal`
+              // is also the drawer's whole turn, which is exactly when the
+              // rest of the room must not be shown it.
+              answer={reveal && phase === "reveal" ? word : null}
+              // In join order. The reveal ranks it by what the turn was
+              // worth, and the podium by the game; neither is the standings
+              // the rail is showing.
+              players={players}
+              inks={inks}
               onPick={onPick}
               intro={intro}
+              results={ending === "showing"}
+              // The board is only taken away once the podium has finished
+              // leaving it. Unmounting the stage is the one exit no animation
+              // survives, so the room waits to be told rather than timing it.
+              onEmpty={() => {
+                if (ending !== "leaving") return;
+                setEnding("none");
+                setStage("lobby");
+              }}
             />
           }
         />

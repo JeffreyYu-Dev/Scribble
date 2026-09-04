@@ -36,9 +36,9 @@ type Point struct {
 	Y float64 `json:"y"`
 }
 
-// DrawCommand is one change to the paper. The three kinds share a struct
-// because the server only ever relays them: the fields a kind does not use are
-// omitted, so what goes out is the shape the client's schema expects.
+// DrawCommand is one change to the paper. The kinds share a struct because the
+// server only ever relays them: the fields a kind does not use are omitted, so
+// what goes out is the shape the client's schema expects.
 type DrawCommand struct {
 	Kind   string  `json:"kind"`
 	Id     string  `json:"id,omitempty"`
@@ -59,6 +59,12 @@ func (c DrawCommand) valid() bool {
 	case "fill":
 		return c.Color != "" && c.At != nil
 	case "clear":
+		return true
+	case "undo", "redo":
+		// Not marks but moves over the marks already made. What they come to is
+		// settled by the client's history, which every client runs over the same
+		// stream; the server keeps them in the log so a player arriving mid-turn
+		// replays them too and lands on the same board.
 		return true
 	}
 	return false

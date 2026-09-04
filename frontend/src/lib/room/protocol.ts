@@ -37,6 +37,11 @@ const drawCommandSchema = z.discriminatedUnion("kind", [
 	}),
 	z.object({ kind: z.literal("fill"), color: z.string(), at: pointSchema }),
 	z.object({ kind: z.literal("clear") }),
+	// Not marks but moves over the marks already made. The server only relays
+	// them; every client replays them through its own history and so reaches
+	// the same paper.
+	z.object({ kind: z.literal("undo") }),
+	z.object({ kind: z.literal("redo") }),
 ]);
 
 const playerSchema = z.object({

@@ -6,6 +6,7 @@ import type { BrushSize, BrushTool } from "#/components/room/tools.ts";
 import {
 	DEFAULT_BRUSHES,
 	DEFAULT_COLOR,
+	DEFAULT_SECONDARY,
 	DEFAULT_TOOL,
 } from "#/components/room/tools.ts";
 import { useDrawing } from "#/hooks/use-drawing.ts";
@@ -48,15 +49,18 @@ export function DrawingBoard({
 	className,
 }: DrawingBoardProps) {
 	const [tool, setTool] = useState<Tool>(DEFAULT_TOOL);
+	// Two inks, on the two mouse buttons. See `DEFAULT_SECONDARY`.
 	const [color, setColor] = useState<string>(DEFAULT_COLOR);
+	const [secondary, setSecondary] = useState<string>(DEFAULT_SECONDARY);
 	// One width per brush, so switching to the eraser and back leaves the pen
 	// exactly as it was.
 	const [brushes, setBrushes] =
 		useState<Record<BrushTool, BrushSize>>(DEFAULT_BRUSHES);
 
-	const { canvas, draw, apply } = useDrawing({
+	const { canvas, draw, apply, undo, redo, canUndo, canRedo } = useDrawing({
 		tool,
 		color,
+		secondary,
 		// A fill has no width of its own; it ignores the size it is handed.
 		size: tool === "eraser" ? brushes.eraser : brushes.pen,
 		disabled,
@@ -67,28 +71,80 @@ export function DrawingBoard({
 	// mounts mid-turn is caught up onto white paper rather than a stale one.
 	useEffect(() => subscribe?.(apply), [subscribe, apply]);
 
+	// The shortcuts everyone reaches for. They listen on the window rather than
+	// the canvas because the board is never focused — you draw on it, you do not
+	// tab to it — so anywhere on the page counts, bar a field someone is typing
+	// their guess into, which has an undo of its own.
+	useEffect(() => {
+		if (disabled) return;
+
+		function onKeyDown(event: KeyboardEvent) {
+			if (!(event.metaKey || event.ctrlKey) || typing(event.target)) return;
+
+			// Shift+Z is redo everywhere but Windows, where it is Ctrl+Y. Both are
+			// cheap to honour, so both are.
+			const key = event.key.toLowerCase();
+			const redoing = key === "y" || (key === "z" && event.shiftKey);
+			if (key !== "z" && key !== "y") return;
+
+			event.preventDefault();
+			if (redoing) redo();
+			else undo();
+		}
+
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [disabled, undo, redo]);
+
 	return (
 		<div className={cn("flex w-full flex-col gap-2", className)}>
 			<Sheet>
-				<Canvas {...canvas} disabled={disabled} />
+				<Canvas {...canvas} />
 				{overlay}
 			</Sheet>
 
-			<Toolbar
-				tool={tool}
-				onToolChange={setTool}
-				color={color}
-				onColorChange={setColor}
-				brushes={brushes}
-				onBrushChange={(brushTool, size) =>
-					setBrushes((current) => ({ ...current, [brushTool]: size }))
-				}
-				// TODO: undo. It wants a history of commands grouped by stroke id,
-				// which is what `DrawCommand.id` is there for.
-				onClear={() => draw({ kind: "clear" })}
-				disabled={disabled}
-			/>
+			{/*
+				The kit belongs to whoever holds the pen. A watcher has nothing to
+				choose, so the bar goes rather than greying out — the board keeps
+				its size either way, since the sheet is sized by the room.
+			*/}
+			{!disabled && (
+				<Toolbar
+					tool={tool}
+					onToolChange={setTool}
+					color={color}
+					onColorChange={setColor}
+					secondary={secondary}
+					onSecondaryChange={setSecondary}
+					onSwapInks={() => {
+						setColor(secondary);
+						setSecondary(color);
+					}}
+					brushes={brushes}
+					onBrushChange={(brushTool, size) =>
+						setBrushes((current) => ({ ...current, [brushTool]: size }))
+					}
+					onUndo={undo}
+					onRedo={redo}
+					canUndo={canUndo}
+					canRedo={canRedo}
+					onClear={() => draw({ kind: "clear" })}
+				/>
+			)}
 		</div>
+	);
+}
+
+/**
+ * Whether a keystroke belongs to something else. A guess being typed carries
+ * its own undo, and the board must not steal it.
+ */
+function typing(target: EventTarget | null) {
+	return (
+		target instanceof HTMLElement &&
+		(target.isContentEditable ||
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement)
 	);
 }
 

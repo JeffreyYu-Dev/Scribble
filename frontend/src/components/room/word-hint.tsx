@@ -1,63 +1,114 @@
 import { cn } from "#/lib/utils.ts";
 
 type WordHintProps = {
-	word: string;
-	/** Indices of the letters given away so far. Ignored when `reveal` is set. */
-	revealed: number[];
-	/** The drawer sees the whole word; everyone else only sees `revealed`. */
-	reveal?: boolean;
-	className?: string;
+  word: string;
+  revealed: number[];
+  reveal?: boolean;
+  className?: string;
 };
+
+const SEPARATORS = new Set([" ", "-"]);
 
 /**
  * The word on its blanks, the same row the home page teases. Spaces break the
- * run of bars so a two-word answer reads as two words.
+ * run of bars so a two-word answer reads as two words, a hyphen is drawn where
+ * it falls, and the count beside them says how long each run is.
  */
 export function WordHint({
-	word,
-	revealed,
-	reveal = false,
-	className,
+  word,
+  revealed,
+  reveal = false,
+  className,
 }: WordHintProps) {
-	// Split by code point, not UTF-16 unit, so a surrogate pair stays one slot.
-	const chars = [...word];
-	const given = new Set(revealed);
-	const letters = chars.filter((char) => char !== " ").length;
+  const chars = [...word];
+  const given = new Set(revealed);
+  const { runs, separators } = shape(chars);
+  const letters = runs.reduce((total, run) => total + run, 0);
 
-	return (
-		<div
-			role="img"
-			className={cn("flex items-end justify-center gap-1.5", className)}
-			aria-label={reveal ? `Your word is ${word}` : `${letters} letters`}
-		>
-			{chars.map((char, i) =>
-				char === " " ? (
-					// biome-ignore lint/suspicious/noArrayIndexKey: slots are positional
-					<span key={i} aria-hidden className="w-2" />
-				) : (
-					<span
-						// biome-ignore lint/suspicious/noArrayIndexKey: slots are positional
-						key={i}
-						aria-hidden
-						className="flex min-w-3.5 flex-col items-center"
-					>
-						<span className="text-sm font-medium tracking-widest uppercase">
-							{reveal || given.has(i) ? char : "\u00a0"}
-						</span>
-						{/*
-							A blank that has been given away keeps its bar lit, so the
-							hint reads as filling in rather than as a row of gaps. The
-							drawer sees the whole word and needs no such marking.
-						*/}
-						<span
-							className={cn(
-								"h-px w-full",
-								!reveal && given.has(i) ? "bg-primary" : "bg-border",
-							)}
-						/>
-					</span>
-				),
-			)}
-		</div>
-	);
+  return (
+    <div
+      role="img"
+      className={cn("flex items-end justify-center gap-1.5", className)}
+      aria-label={
+        reveal
+          ? `Your word is ${word}`
+          : runs.length > 1
+            ? `${letters} letters in ${runs.length} parts`
+            : `${letters} letters`
+      }
+    >
+      {chars.map((char, i) => {
+        if (char === " ") {
+          return <span key={i} aria-hidden className="w-2" />;
+        }
+
+        const separator = SEPARATORS.has(char);
+
+        return (
+          <span
+            key={i}
+            aria-hidden
+            className="flex min-w-3.5 flex-col items-center"
+          >
+            <span className="text-lg font-bold tracking-widest uppercase">
+              {separator || reveal || given.has(i) ? char : " "}
+            </span>
+
+            <span
+              className={cn(
+                "h-px w-full",
+                separator
+                  ? "bg-transparent"
+                  : !reveal && given.has(i)
+                    ? "bg-primary"
+                    : "bg-border",
+              )}
+            />
+          </span>
+        );
+      })}
+
+      {letters > 0 ? (
+        <span
+          aria-hidden
+          className="mb-auto text-2xs font-medium text-muted-foreground"
+        >
+          {count(runs, separators)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The word broken into its runs of letters and whatever separated them.
+ *
+ * Taken from the same string the blanks are drawn from, which is the masked
+ * word for a guesser and the real one for the drawer. Those two have the same
+ * length and the same separators, and that is the whole reason this can be put
+ * in front of somebody who has not guessed it yet.
+ */
+function shape(chars: string[]) {
+  const runs: number[] = [];
+  const separators: string[] = [];
+  let run = 0;
+
+  for (const char of chars) {
+    if (!SEPARATORS.has(char)) {
+      run++;
+      continue;
+    }
+    runs.push(run);
+    separators.push(char);
+    run = 0;
+  }
+  runs.push(run);
+
+  return { runs, separators };
+}
+
+function count(runs: number[], separators: string[]) {
+  let out = String(runs[0]);
+  for (let i = 1; i < runs.length; i++) out += separators[i - 1] + runs[i];
+  return out;
 }

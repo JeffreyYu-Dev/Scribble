@@ -136,8 +136,10 @@ export function wordSlots(turn: Turn) {
 
 	const revealed: number[] = [];
 	// Split by code point, matching how `WordHint` numbers its slots.
+	// A space or a hyphen was never hidden, so neither is a letter the room has
+	// been given — `WordHint` draws those as the separators they are.
 	[...turn.hint].forEach((char, index) => {
-		if (char !== HIDDEN && char !== " ") revealed.push(index);
+		if (char !== HIDDEN && char !== " " && char !== "-") revealed.push(index);
 	});
 
 	return { word: turn.hint, revealed, reveal: false };

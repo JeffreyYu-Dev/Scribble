@@ -266,12 +266,24 @@ func endsIn(deadline, now time.Time) int {
 
 /* ------------------------------------------------------------------ hints */
 
-// mask is the word with every letter hidden. Spaces are left alone so a
-// two-word answer still reads as two words.
+// separator is what stands between two runs of letters in a word. Neither is
+// ever hidden: they are the shape of the answer rather than any of its letters,
+// and a guesser told that the word is two runs of four has been told something
+// they could count off the blanks anyway.
+//
+// It has to agree with `SEPARATORS` in the frontend's `word-hint.tsx`, which
+// draws these as separators rather than as blanks to be filled in.
+func separator(char rune) bool {
+	return char == ' ' || char == '-'
+}
+
+// mask is the word with every letter hidden. Separators are left alone, so a
+// two-word answer still reads as two words and a hyphenated one still reads as
+// hyphenated.
 func mask(word string) []rune {
 	masked := []rune(word)
 	for i, char := range masked {
-		if char != ' ' {
+		if !separator(char) {
 			masked[i] = Hidden
 		}
 	}
@@ -283,7 +295,7 @@ func mask(word string) []rune {
 func hintSchedule(start time.Time, word string) []time.Time {
 	letters := 0
 	for _, char := range word {
-		if char != ' ' {
+		if !separator(char) {
 			letters++
 		}
 	}
@@ -469,6 +481,11 @@ func (r *Room) draw(player *Player, commands []DrawCommand) {
 		} else if len(r.canvas) < maxCanvas {
 			// Kept so a player arriving mid-turn can be shown the board. The
 			// cap is a ceiling on one turn's drawing, not a scrollback.
+			//
+			// An undo is kept rather than applied: what it takes back is the
+			// client's history to work out, and replaying the log through that
+			// history is what puts a late arrival on the same board as everyone
+			// else. Undoing here as well would be the same rule written twice.
 			r.canvas = append(r.canvas, command)
 		}
 	}

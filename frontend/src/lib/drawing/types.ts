@@ -9,7 +9,8 @@ export type Tool = "pen" | "eraser" | "fill";
 /** A spot on the bitmap, in board pixels rather than screen pixels. */
 export type Point = { x: number; y: number };
 
-export type DrawCommand =
+/** A command that puts ink on the paper. These are what `render` can draw. */
+export type PaintCommand =
 	/**
 	 * A piece of one drag. A drag is streamed as many short commands rather
 	 * than one long one so watchers see the line as it is made; `id` is what
@@ -20,3 +21,11 @@ export type DrawCommand =
 	| { kind: "fill"; color: string; at: Point }
 	/** Back to blank paper. */
 	| { kind: "clear" };
+
+/**
+ * Everything that may cross the wire. Undo and redo are not marks but moves
+ * over the marks already made, and so are settled by `createHistory` rather
+ * than by `render` — every client keeps the same stacks and reaches the same
+ * paper from the same stream.
+ */
+export type DrawCommand = PaintCommand | { kind: "undo" } | { kind: "redo" };

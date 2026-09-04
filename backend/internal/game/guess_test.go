@@ -62,9 +62,21 @@ func TestEditDistance(t *testing.T) {
 	}
 }
 
-func TestMaskHidesLettersAndKeepsSpaces(t *testing.T) {
-	if got := string(mask("spider web")); got != "______ ___" {
-		t.Errorf("mask = %q", got)
+func TestMaskHidesLettersAndKeepsSeparators(t *testing.T) {
+	// The shape of the answer survives the mask and its letters do not, which
+	// is what lets the client count "6 5" or "2-2" off a word nobody has yet.
+	cases := map[string]string{
+		"spider web": "______ ___",
+		"yo-yo":      "__-__",
+		"test-test":  "____-____",
+		"a-123-bqwe": "_-___-____",
+		"igloo":      "_____",
+	}
+
+	for word, want := range cases {
+		if got := string(mask(word)); got != want {
+			t.Errorf("mask(%q) = %q, want %q", word, got, want)
+		}
 	}
 }
 
@@ -72,7 +84,7 @@ func TestHintScheduleAlwaysKeepsALetterBack(t *testing.T) {
 	for _, word := range words {
 		letters := 0
 		for _, char := range word {
-			if char != ' ' {
+			if !separator(char) {
 				letters++
 			}
 		}

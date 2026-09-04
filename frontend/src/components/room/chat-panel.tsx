@@ -117,7 +117,20 @@ export function ChatPanel({
                     <MessageScrollerItem
                       key={entry.id}
                       messageId={entry.id}
-                      className={cn(continued && "-mt-2")}
+                      // The scroller virtualises its rows by default, which
+                      // this feed is the wrong shape for. An off-screen row is
+                      // laid out at `contain-intrinsic-size` — 10rem, against
+                      // a real row of two or three — so a line that has not
+                      // been on screen yet is four times its own height until
+                      // it renders and collapses to it. On a feed pinned to
+                      // its end that reads as the panel shrinking every time
+                      // anyone guesses. The store caps the feed at 200 short
+                      // rows, so there is nothing here worth virtualising and
+                      // the estimate is pure cost.
+                      className={cn(
+                        "[content-visibility:visible]",
+                        continued && "-mt-2",
+                      )}
                     >
                       <ChatRow
                         entry={entry}

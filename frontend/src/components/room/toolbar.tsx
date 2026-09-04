@@ -50,47 +50,64 @@ type ToolbarProps = {
   onToolChange: (tool: Tool) => void;
   color: string;
   onColorChange: (color: string) => void;
+  /** The second ink, which the right button draws in. */
+  secondary: string;
+  onSecondaryChange: (color: string) => void;
+  onSwapInks: () => void;
   /** The pen and the eraser keep separate widths. */
   brushes: Record<BrushTool, BrushSize>;
   onBrushChange: (tool: BrushTool, brush: BrushSize) => void;
   onUndo?: () => void;
+  onRedo?: () => void;
+  /** Whether either stack has anything in it. Greys out the button that has none. */
+  canUndo?: boolean;
+  canRedo?: boolean;
   onClear?: () => void;
-  /** Everything greys out while someone else holds the pen. */
-  disabled?: boolean;
   className?: string;
 };
 
 /**
- * The settings for the next stroke — ink, tool, width — plus the two buttons
- * that act on the paper instead. It only reports choices; the canvas is what
- * turns them into pixels.
+ * The settings for the next stroke — ink, tool, width — plus the buttons that
+ * act on the paper instead. It only reports choices; the canvas is what turns
+ * them into pixels, and what knows whether there is anything left to undo.
  */
 export function Toolbar({
   tool,
   onToolChange,
   color,
   onColorChange,
+  secondary,
+  onSecondaryChange,
+  onSwapInks,
   brushes,
   onBrushChange,
   onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
   onClear,
-  disabled = false,
   className,
 }: ToolbarProps) {
   return (
     <div
       className={cn(
         "flex items-center gap-2 overflow-x-auto rounded-lg bg-card p-2 text-card-foreground ring-1 ring-foreground/10 *:shrink-0",
-        disabled && "opacity-60",
         className,
       )}
     >
-      <CurrentInk color={color} brush={brushes} tool={tool} />
+      <InkPair
+        color={color}
+        secondary={secondary}
+        brush={brushes}
+        tool={tool}
+        onSwap={onSwapInks}
+      />
 
       <Palette
         color={color}
         onColorChange={onColorChange}
-        disabled={disabled}
+        secondary={secondary}
+        onSecondaryChange={onSecondaryChange}
       />
 
       <ToggleGroup
@@ -98,7 +115,6 @@ export function Toolbar({
         variant="outline"
         size="lg"
         value={tool}
-        disabled={disabled}
         aria-label="Drawing tool"
         onValueChange={(next) => next && onToolChange(next as Tool)}
       >
@@ -150,8 +166,8 @@ export function Toolbar({
               variant="outline"
               size="icon-lg"
               className={CONTROL}
-              disabled={disabled}
-              aria-label="Undo the last stroke"
+              disabled={!canUndo}
+              aria-label="Undo the last mark"
               onClick={onUndo}
             >
               <ACTIONS.undo.icon className={ICON} />
@@ -162,10 +178,24 @@ export function Toolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
+              variant="outline"
+              size="icon-lg"
+              className={CONTROL}
+              disabled={!canRedo}
+              aria-label="Redo the last undone mark"
+              onClick={onRedo}
+            >
+              <ACTIONS.redo.icon className={ICON} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{ACTIONS.redo.label}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
               variant="destructive"
               size="icon-lg"
               className={CONTROL}
-              disabled={disabled}
               aria-label="Clear the canvas"
               onClick={onClear}
             >
@@ -203,8 +233,6 @@ function BrushPicker({
   // actual mark rather than an abstract size.
   const ink = tool === "eraser" ? PAPER : color;
 
-  // A disabled trigger takes no pointer events, so the row simply never opens
-  // while someone else holds the pen.
   return (
     <HoverCard>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
@@ -245,38 +273,88 @@ function BrushPicker({
   );
 }
 
-/** What the next mark will look like: the chosen ink, as the tool would lay it. */
-function CurrentInk({
+/**
+ * What the brush is loaded with, in one square: the two inks split corner to
+ * corner — the left button's above the diagonal, the right button's below —
+ * with the nib itself on top at the width it will draw. Clicking swaps the
+ * two, which is also the only way to reach the second ink without a right
+ * button to press.
+ *
+ * The nib carries a ring of paper so it stays legible over whichever half it
+ * lands on; a black nib on black ink would otherwise be a square with nothing
+ * in it. The hairline outside that ring is what keeps a white nib from
+ * disappearing into the ring in turn.
+ */
+function InkPair({
   color,
+  secondary,
   brush,
   tool,
+  onSwap,
 }: {
   color: string;
+  secondary: string;
   brush: Record<BrushTool, BrushSize>;
   tool: Tool;
+  onSwap: () => void;
 }) {
-  const erasing = tool === "eraser";
-
   return (
-    <div
-      aria-hidden
-      className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-white ring-1 ring-foreground/10"
-    >
-      {tool === "fill" ? (
-        // A fill floods everything it reaches, so the whole swatch is the
-        // preview.
-        <span className="size-full" style={{ backgroundColor: color }} />
-      ) : (
-        <span
-          className={cn("rounded-full", erasing && "ring-1 ring-neutral-300")}
-          style={{
-            width: brush[tool],
-            height: brush[tool],
-            backgroundColor: erasing ? PAPER : color,
-          }}
-        />
-      )}
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onSwap}
+          aria-label={`Swap inks. Drawing in ${color}, right button draws ${secondary}`}
+          className={cn(
+            CONTROL,
+            "relative grid place-items-center overflow-hidden rounded-md ring-1 ring-foreground/10",
+            "outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+        >
+          <span
+            aria-hidden
+            className="absolute inset-0"
+            style={{ backgroundColor: secondary }}
+          />
+          <span
+            aria-hidden
+            className="absolute inset-0"
+            // The half above the corner-to-corner diagonal.
+            style={{
+              backgroundColor: color,
+              clipPath: "polygon(0 0, 100% 0, 0 100%)",
+            }}
+          />
+          {/*
+            A hairline along the join, so two inks that are close together are
+            still visibly two.
+          */}
+          <span
+            aria-hidden
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(to bottom right, transparent calc(50% - 0.5px), color-mix(in oklab, var(--color-foreground) 25%, transparent) 50%, transparent calc(50% + 0.5px))",
+            }}
+          />
+
+          {/* A fill floods everything it reaches, so it has no nib to show. */}
+          {tool === "fill" ? null : (
+            <span
+              aria-hidden
+              className="relative rounded-full"
+              style={{
+                width: brush[tool],
+                height: brush[tool],
+                backgroundColor: tool === "eraser" ? PAPER : color,
+                boxShadow: `0 0 0 2px ${PAPER}, 0 0 0 3px color-mix(in oklab, var(--color-foreground) 35%, transparent)`,
+              }}
+            />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>swap inks — right-click draws the second</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -288,11 +366,13 @@ function CurrentInk({
 function Palette({
   color,
   onColorChange,
-  disabled,
+  secondary,
+  onSecondaryChange,
 }: {
   color: string;
   onColorChange: (color: string) => void;
-  disabled: boolean;
+  secondary: string;
+  onSecondaryChange: (color: string) => void;
 }) {
   return (
     <FieldSet>
@@ -301,22 +381,34 @@ function Palette({
         {PALETTE.flatMap((row) =>
           row.map((swatch) => {
             const selected = swatch === color;
+            const second = swatch === secondary;
             return (
               <button
                 key={swatch}
                 type="button"
                 aria-pressed={selected}
-                aria-label={swatch}
-                disabled={disabled}
+                aria-label={
+                  second ? `${swatch}, second ink` : swatch
+                }
                 onClick={() => onColorChange(swatch)}
+                // The tray loads both inks, one per button, the same way the
+                // board spends them.
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onSecondaryChange(swatch);
+                }}
                 style={{
                   backgroundColor: swatch,
                   // A halo of the swatch's own colour. The outermost
                   // hairline is what keeps white and the palest shades
-                  // from disappearing into the tray.
+                  // from disappearing into the tray. The second ink is
+                  // marked from the inside instead, so the two never
+                  // compete for the same edge.
                   boxShadow: selected
                     ? `0 0 0 2px var(--color-muted), 0 0 0 4px ${swatch}, 0 0 0 5px color-mix(in oklab, var(--color-foreground) 30%, transparent)`
-                    : undefined,
+                    : second
+                      ? "inset 0 0 0 1px var(--color-background), inset 0 0 0 2px color-mix(in oklab, var(--color-foreground) 45%, transparent)"
+                      : undefined,
                 }}
                 className={cn(
                   "relative size-4 rounded-[3px] outline-none transition-shadow",

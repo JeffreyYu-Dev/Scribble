@@ -2,9 +2,13 @@
  * The one place pixels are written. `render` is deliberately the whole surface
  * of this module: local strokes and strokes arriving over the socket are the
  * same commands, so they go through the same door and land identically.
+ *
+ * It draws marks and nothing else. Undo and redo are moves over the marks
+ * already made and are settled by `createHistory`, which hands back the marks
+ * to paint — so they never reach this file.
  */
 
-import type { DrawCommand, Point } from "#/lib/drawing/types.ts";
+import type { PaintCommand, Point } from "#/lib/drawing/types.ts";
 
 /** The bitmap's fixed size. CSS stretches the element to fit the board. */
 export const BOARD_WIDTH = 1600;
@@ -15,14 +19,43 @@ export const PAPER = "#ffffff";
 
 /**
  * How far a pixel may drift from the one that was clicked and still count as
- * the same area. Strokes are drawn with antialiasing, so their edges fade into
- * the paper; without some give, a fill would stop short and leave a halo.
+ * the same area — which is to say, how far the flood is allowed to travel.
+ * Deliberately tight: this is the number that decides whether a stroke holds
+ * the paint in, and a generous one lets a fill escape through a pale line.
  */
 const FILL_TOLERANCE = 32;
 
+/**
+ * How far past the area's edge the fill reaches, in pixels.
+ *
+ * A stroke is drawn antialiased, so it does not end: it fades into the paper
+ * over about a pixel, and every step of that fade is a colour the flood above
+ * refuses. Stopping there leaves the fade behind as a pale rim around the
+ * shape — a fill that visibly does not touch the line it was drawn against.
+ *
+ * So the area is grown into its own edge afterwards. Two pixels is enough for
+ * the fade on a diagonal, and it costs nothing on a straight one: the reach is
+ * limited by `coverage` rather than by this, and a pixel that has become the
+ * stroke outright takes no paint however close to it the fill gets.
+ */
+const FILL_FEATHER = 2;
+
+/**
+ * How far a pixel may have drifted from the area's colour and still be treated
+ * as partly the area — the width of the fade, in effect. Past this a pixel is
+ * the stroke itself and is left alone.
+ *
+ * There is no rule that separates a half-drawn dark line from a fully drawn
+ * pale one; they are the same pixel. This is set high enough to recover the
+ * fade under a dark stroke, which is what the paper is mostly drawn with, and
+ * accepts that a fill run up against a very pale line will bleed a pixel or
+ * two into it.
+ */
+const FILL_SPREAD = 190;
+
 export function render(
 	context: CanvasRenderingContext2D,
-	command: DrawCommand,
+	command: PaintCommand,
 ) {
 	switch (command.kind) {
 		case "stroke":
@@ -42,7 +75,7 @@ function clear(context: CanvasRenderingContext2D) {
 
 function stroke(
 	context: CanvasRenderingContext2D,
-	{ color, size, points }: Extract<DrawCommand, { kind: "stroke" }>,
+	{ color, size, points }: Extract<PaintCommand, { kind: "stroke" }>,
 ) {
 	const [first, ...rest] = points;
 	if (!first) return;
@@ -72,10 +105,15 @@ function stroke(
  * Scanline flood fill: rows are filled a span at a time and only the start of
  * each newly touched span above or below is queued, which keeps the queue
  * proportional to the shape's edges instead of its area.
+ *
+ * The flood finds the area; it does not paint it. Painting is one rule applied
+ * afterwards to the area and to the fade around it alike — see `tint` — which
+ * is what lets the fill reach under a stroke's antialiased edge instead of
+ * stopping a pixel short of every line on the page.
  */
 function fill(
 	context: CanvasRenderingContext2D,
-	{ color, at }: Extract<DrawCommand, { kind: "fill" }>,
+	{ color, at }: Extract<PaintCommand, { kind: "fill" }>,
 ) {
 	const { width, height } = context.canvas;
 	const start = { x: Math.floor(at.x), y: Math.floor(at.y) };
@@ -85,41 +123,85 @@ function fill(
 	const pixels = image.data;
 	const target = pixelAt(pixels, offset(start.x, start.y, width));
 	const ink = rgb(color);
-	// A pixel is marked as visited by being painted, so filling with a shade
-	// the fill would still accept would never terminate.
+	// Nothing to do, and the edge would still be grown into if we carried on.
 	if (near(target, ink)) return;
+
+	/** Every pixel the fill has taken: the area, and later the fade around it. */
+	const claimed = new Uint8Array(width * height);
+	/**
+	 * Where the flood stopped. Collected here rather than by sweeping the
+	 * bitmap afterwards because the flood has already tested every one of these
+	 * pixels — finding them again would cost more than the fill itself.
+	 */
+	let edge: number[] = [];
 
 	const queue: Point[] = [start];
 	while (queue.length > 0) {
 		const seed = queue.pop();
 		if (!seed) break;
+		if (claimed[seed.y * width + seed.x]) continue;
 
 		let left = seed.x;
-		while (left > 0 && matches(pixels, offset(left - 1, seed.y, width), target))
+		while (left > 0 && open(pixels, claimed, left - 1, seed.y, width, target))
 			left--;
 		let right = seed.x;
 		while (
 			right < width - 1 &&
-			matches(pixels, offset(right + 1, seed.y, width), target)
+			open(pixels, claimed, right + 1, seed.y, width, target)
 		)
 			right++;
+
+		// The two ends of the span are edge unless the row ran out first.
+		if (left > 0) edge.push(seed.y * width + left - 1);
+		if (right < width - 1) edge.push(seed.y * width + right + 1);
 
 		let above = false;
 		let below = false;
 		for (let x = left; x <= right; x++) {
-			paint(pixels, offset(x, seed.y, width), ink);
+			claimed[seed.y * width + x] = 1;
+			// Safe to paint as we go now that `open` asks `claimed` before it
+			// asks the colour: a pixel already taken is refused before anything
+			// reads what it has become.
+			tint(pixels, offset(x, seed.y, width), target, ink, 1);
 
 			const up =
-				seed.y > 0 && matches(pixels, offset(x, seed.y - 1, width), target);
+				seed.y > 0 && open(pixels, claimed, x, seed.y - 1, width, target);
 			if (up && !above) queue.push({ x, y: seed.y - 1 });
+			else if (!up && seed.y > 0) edge.push((seed.y - 1) * width + x);
 			above = up;
 
 			const down =
 				seed.y < height - 1 &&
-				matches(pixels, offset(x, seed.y + 1, width), target);
+				open(pixels, claimed, x, seed.y + 1, width, target);
 			if (down && !below) queue.push({ x, y: seed.y + 1 });
+			else if (!down && seed.y < height - 1) edge.push((seed.y + 1) * width + x);
 			below = down;
 		}
+	}
+
+	// Then out into the fade, a ring at a time. Each ring is the unclaimed
+	// neighbours of the last, so this walks the edge rather than the bitmap —
+	// which is what keeps a fill proportional to the shape it is filling, and
+	// an undo (which replays every fill on the page) affordable.
+	for (let ring = 0; ring < FILL_FEATHER; ring++) {
+		const next: number[] = [];
+
+		for (const index of edge) {
+			if (claimed[index]) continue;
+			claimed[index] = 1;
+
+			const share = coverage(pixelAt(pixels, index * 4), target);
+			if (share > 0) tint(pixels, index * 4, target, ink, share);
+
+			const x = index % width;
+			if (x > 0 && !claimed[index - 1]) next.push(index - 1);
+			if (x < width - 1 && !claimed[index + 1]) next.push(index + 1);
+			if (index >= width && !claimed[index - width]) next.push(index - width);
+			const below = index + width;
+			if (below < claimed.length && !claimed[below]) next.push(below);
+		}
+
+		edge = next;
 	}
 
 	context.putImageData(image, 0, 0);
@@ -144,15 +226,68 @@ function pixelAt(pixels: Uint8ClampedArray, index: number): Rgb {
 	];
 }
 
-function paint(pixels: Uint8ClampedArray, index: number, [r, g, b, a]: Rgb) {
-	pixels[index] = r;
-	pixels[index + 1] = g;
-	pixels[index + 2] = b;
-	pixels[index + 3] = a;
+/**
+ * Swaps the area's colour for the ink in whatever proportion of the pixel the
+ * area held, leaving everything else in it alone.
+ *
+ * The difference is added rather than the colour replaced, and that is the
+ * whole of why the edge comes out clean. A pixel halfway along a stroke's fade
+ * is half paper and half ink; adding half the change to it makes it half fill
+ * and half ink, which is what it would have been had the stroke been drawn
+ * over the fill in the first place. Replacing it instead would throw the
+ * stroke's half away and leave the line looking chewed.
+ *
+ * At `share` of 1 over a pixel that is exactly the area's colour — which is
+ * every pixel of the area itself — this comes to the ink, so the area and its
+ * edge are painted by one rule.
+ */
+function tint(
+	pixels: Uint8ClampedArray,
+	index: number,
+	target: Rgb,
+	ink: Rgb,
+	share: number,
+) {
+	pixels[index] += (ink[0] - target[0]) * share;
+	pixels[index + 1] += (ink[1] - target[1]) * share;
+	pixels[index + 2] += (ink[2] - target[2]) * share;
+	pixels[index + 3] = 255;
 }
 
-function matches(pixels: Uint8ClampedArray, index: number, target: Rgb) {
-	return near(pixelAt(pixels, index), target);
+/**
+ * How much of a pixel still belongs to the area, judged by how far it has
+ * drifted from the colour under the bucket: all of it while the pixel is
+ * within tolerance, none once it has become the stroke, and the ramp between
+ * the two is the antialiased fade itself.
+ */
+function coverage(pixel: Rgb, target: Rgb) {
+	const drift = Math.max(
+		Math.abs(pixel[0] - target[0]),
+		Math.abs(pixel[1] - target[1]),
+		Math.abs(pixel[2] - target[2]),
+	);
+
+	if (drift <= FILL_TOLERANCE) return 1;
+	if (drift >= FILL_SPREAD) return 0;
+	return 1 - (drift - FILL_TOLERANCE) / (FILL_SPREAD - FILL_TOLERANCE);
+}
+
+/**
+ * Whether the flood may cross this pixel: it is the area's colour, and has not
+ * been taken already. The two are asked together because the flood no longer
+ * paints as it goes — a pixel it has crossed still looks exactly like one it
+ * has not, so `claimed` is what stops it going round for ever.
+ */
+function open(
+	pixels: Uint8ClampedArray,
+	claimed: Uint8Array,
+	x: number,
+	y: number,
+	width: number,
+	target: Rgb,
+) {
+	const index = y * width + x;
+	return !claimed[index] && near(pixelAt(pixels, index * 4), target);
 }
 
 function near(a: Rgb, b: Rgb) {
