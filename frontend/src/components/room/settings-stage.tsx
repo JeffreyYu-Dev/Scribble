@@ -37,6 +37,7 @@ import {
 import type { MiniGame } from "#/lib/room/games.ts";
 import type { GameSettings } from "#/lib/room/settings.ts";
 import { SETTING_CHOICES } from "#/lib/room/settings.ts";
+import { Link } from "@tanstack/react-router";
 
 type SettingsStageProps = {
   game: MiniGame;
@@ -101,6 +102,12 @@ export function SettingsStage({
     // The floor is for a narrow screen, where the room has no fixed height
     // and the card would otherwise collapse onto its own scroll area.
     <Card size="sm" className="flex min-h-96 flex-1 flex-col lg:min-h-0">
+      <div className=" text-center bg-red-500 text-white h-10 text-lg content-center">
+        Not implemented yet lol{" "}
+        <Link to="/roadmap" className="underline text-sm">
+          Roadmap
+        </Link>
+      </div>
       <CardHeader>
         <CardTitle>Game settings</CardTitle>
         <CardDescription>
