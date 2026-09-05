@@ -81,6 +81,8 @@ func TestMaskHidesLettersAndKeepsSeparators(t *testing.T) {
 }
 
 func TestHintScheduleAlwaysKeepsALetterBack(t *testing.T) {
+	turn := TurnSeconds * time.Second
+
 	for _, word := range words {
 		letters := 0
 		for _, char := range word {
@@ -88,9 +90,18 @@ func TestHintScheduleAlwaysKeepsALetterBack(t *testing.T) {
 				letters++
 			}
 		}
-		if got := len(hintSchedule(time.Now(), word)); got >= letters {
+		// Asked for as many letters as a host may set, which is what the cap
+		// has to hold against: a three-letter word must not be handed over
+		// whole because the room was set to five hints.
+		if got := len(hintSchedule(time.Now(), word, maxHints, turn)); got >= letters {
 			t.Fatalf("%q: %d hints for %d letters gives the whole word away", word, got, letters)
 		}
+	}
+}
+
+func TestNoHintsAreScheduledWhenTheRoomWantsNone(t *testing.T) {
+	if at := hintSchedule(time.Now(), "lighthouse", 0, TurnSeconds*time.Second); at != nil {
+		t.Fatalf("a room set to no hints scheduled %d", len(at))
 	}
 }
 
@@ -104,7 +115,7 @@ func TestPickWordsAvoidsRecentOnes(t *testing.T) {
 	recent := append([]string(nil), words[:recentWords]...)
 
 	for range 500 {
-		choices := pickWords(recent, WordChoices)
+		choices := pickWords(recent, WordChoices, words)
 		if len(choices) != WordChoices {
 			t.Fatalf("dealt %d words, wanted %d", len(choices), WordChoices)
 		}

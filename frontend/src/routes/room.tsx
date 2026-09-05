@@ -8,6 +8,7 @@ import {
   useChat,
   usePlayers,
   useRoom,
+  useSettings,
   useTurn,
 } from "#/components/room/room-provider.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -120,6 +121,7 @@ function LiveRoom() {
   const players = usePlayers();
   const { entries, guess } = useChat();
   const turn = useTurn();
+  const { settings, update: updateSettings } = useSettings();
   const canvas = useCanvas();
 
   // The store holds the deadline the server gave us; the clock runs here.
@@ -146,6 +148,11 @@ function LiveRoom() {
       // is what puts the room on the board or back in the lobby.
       live={turn.drawerId !== null}
       hosting={owner}
+      // Held by the room rather than by this tab, so every player sees the
+      // same dials and a reconnect finds them already set. What a change
+      // comes to is the server's call, and it only listens to the host.
+      settings={settings}
+      onSettingsChange={updateSettings}
       onStart={turn.start}
       onGuess={guess}
       onCommand={canvas.push}

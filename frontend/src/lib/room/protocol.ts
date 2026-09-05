@@ -16,6 +16,8 @@ import { z } from "zod";
 
 import type { DrawCommand } from "#/lib/drawing/types.ts";
 import { TOTAL_ROUNDS, TURN_SECONDS } from "#/lib/room/constants.ts";
+import type { GameSettings } from "#/lib/room/settings.ts";
+import { DEFAULT_SETTINGS } from "#/lib/room/settings.ts";
 import { joinAckSchema } from "#/lib/schemas.ts";
 
 /* -------------------------------------------------------------- primitives */
@@ -92,6 +94,26 @@ const chatEntrySchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("leave"), id: z.string(), player: z.string() }),
 ]);
 
+/**
+ * The room's configuration, as the server settled it. Every player is sent
+ * this, not only the host: the lobby shows everyone what is about to be played,
+ * and the host is simply the one allowed to change it.
+ *
+ * Defaulted field by field rather than as a whole, so a server that has not
+ * caught up on one setting still delivers the rest.
+ */
+const settingsSchema = z.object({
+	rounds: z.number().int().default(DEFAULT_SETTINGS.rounds),
+	drawSeconds: z.number().int().default(DEFAULT_SETTINGS.drawSeconds),
+	maxPlayers: z.number().int().default(DEFAULT_SETTINGS.maxPlayers),
+	hints: z.number().int().default(DEFAULT_SETTINGS.hints),
+	wordSource: z
+		.enum(["default", "mixed", "custom"])
+		.default(DEFAULT_SETTINGS.wordSource),
+	/** The room's own bank. Always sent, and empty far more often than not. */
+	words: z.array(z.string()).default([]),
+});
+
 /** The character the server masks an unrevealed letter with. */
 export const HIDDEN = "_";
 
@@ -131,6 +153,7 @@ const turnSchema = z.object({
 export type WirePlayer = z.infer<typeof playerSchema>;
 export type WireChatEntry = z.infer<typeof chatEntrySchema>;
 export type WireTurn = z.infer<typeof turnSchema>;
+export type WireSettings = z.infer<typeof settingsSchema>;
 
 /* ------------------------------------------------------- server -> client */
 
@@ -149,7 +172,11 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
 		players: z.array(playerSchema),
 		chat: z.array(chatEntrySchema).default([]),
 		turn: turnSchema.nullable().default(null),
+		settings: settingsSchema.default(DEFAULT_SETTINGS),
 	}),
+
+	/** The room's configuration, whenever the host changes it. */
+	z.object({ type: z.literal("settings"), settings: settingsSchema }),
 
 	/** The roster, whenever anyone joins, leaves, or scores. Join order. */
 	z.object({ type: z.literal("players"), players: z.array(playerSchema) }),
@@ -205,6 +232,13 @@ export type ClientMessage =
 	 * the host. Nothing else starts a room: it does not start itself.
 	 */
 	| { type: "start" }
+	/**
+	 * The host turning one of the room's dials. The whole configuration goes
+	 * every time — it is four numbers and a word list, and a diff would only be
+	 * another thing for the two halves to disagree about. The server ignores it
+	 * from anyone but the host, and while a game is running.
+	 */
+	| { type: "settings"; settings: GameSettings }
 	| { type: "guess"; text: string }
 	/** The drawer taking one of the words offered, by its index in `choices`. */
 	| { type: "pick"; choice: number }

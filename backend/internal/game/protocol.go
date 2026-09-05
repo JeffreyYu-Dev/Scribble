@@ -152,11 +152,22 @@ type Snapshot struct {
 	Players []PlayerView `json:"players"`
 	Chat    []ChatEntry  `json:"chat"`
 	Turn    *TurnView    `json:"turn"`
+	// Settings is what the room is set up to play, host or not: everyone is
+	// shown the dials, and only the host may turn them.
+	Settings Settings `json:"settings"`
 }
 
 type PlayersMessage struct {
 	Type    string       `json:"type"`
 	Players []PlayerView `json:"players"`
+}
+
+// SettingsMessage is the room's configuration after the host changed it. It
+// carries the settings as sanitized, not as asked for, so what every player
+// sees is what the next game will actually be played by.
+type SettingsMessage struct {
+	Type     string   `json:"type"`
+	Settings Settings `json:"settings"`
 }
 
 type ChatMessage struct {
@@ -224,4 +235,8 @@ type clientMessage struct {
 	// the Choices they were sent.
 	Choice   int           `json:"choice"`
 	Commands []DrawCommand `json:"commands"`
+	// Settings is the whole configuration, sent by the host whenever any one
+	// of the dials moves. A pointer so a message that carries none is told
+	// apart from one asking for every setting to be zero.
+	Settings *Settings `json:"settings"`
 }

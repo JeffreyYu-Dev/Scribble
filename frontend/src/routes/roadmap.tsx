@@ -12,7 +12,6 @@ function Roadmap() {
 
       <Section title="Top priority">
         <li>sound</li>
-        <li>custom game configuration not implemented</li>
       </Section>
 
       <Section title="Medium priority">
@@ -36,7 +35,6 @@ function Roadmap() {
 
       <Section title="Stuff lol">
         <li>smooth out timer</li>
-        <li>members should be able to see settings</li>
         <li>user settings</li>
         <li>ui overhaul</li>
         <li>mute</li>

@@ -17,6 +17,11 @@ func wireCases() []struct {
 } {
 	gained := 180
 	word := "sailboat"
+	settings := DefaultSettings()
+	custom := Settings{
+		Rounds: 5, DrawSeconds: 40, MaxPlayers: 8, Hints: 0,
+		WordSource: WordsCustom, Words: []string{"bagel", "kazoo", "tugboat"},
+	}
 	turn := TurnView{
 		Round: 2, TotalRounds: 3, Phase: "drawing", DrawerId: "p2",
 		Word: nil, Hint: "s___b__t", Seconds: 80, EndsIn: 42,
@@ -41,13 +46,14 @@ func wireCases() []struct {
 		want string
 	}{
 		{"joined", Joined{Type: "joined", PlayerId: "9ce95b20-450f-4898-928a-c5f77fefba02", Code: "ABC12", Owner: true}, "{\"type\":\"joined\",\"playerId\":\"9ce95b20-450f-4898-928a-c5f77fefba02\",\"code\":\"ABC12\",\"owner\":true}"},
-		{"room/empty", Snapshot{Type: "room", Players: []PlayerView{}, Chat: []ChatEntry{}, Turn: nil}, "{\"type\":\"room\",\"players\":[],\"chat\":[],\"turn\":null}"},
+		{"room/empty", Snapshot{Type: "room", Players: []PlayerView{}, Chat: []ChatEntry{}, Turn: nil, Settings: settings}, "{\"type\":\"room\",\"players\":[],\"chat\":[],\"turn\":null,\"settings\":{\"rounds\":3,\"drawSeconds\":80,\"maxPlayers\":12,\"hints\":2,\"wordSource\":\"default\",\"words\":[]}}"},
 		{"room/full", Snapshot{
-			Type:    "room",
-			Players: []PlayerView{{Id: "p1", Name: "alice", Score: 300, Gained: &gained, Status: "guessed"}},
-			Chat:    []ChatEntry{{Kind: "join", Id: "c1", Player: "alice"}},
-			Turn:    &turn,
-		}, "{\"type\":\"room\",\"players\":[{\"id\":\"p1\",\"name\":\"alice\",\"score\":300,\"gained\":180,\"status\":\"guessed\"}],\"chat\":[{\"kind\":\"join\",\"id\":\"c1\",\"player\":\"alice\"}],\"turn\":{\"round\":2,\"totalRounds\":3,\"phase\":\"drawing\",\"drawerId\":\"p2\",\"word\":null,\"hint\":\"s___b__t\",\"seconds\":80,\"endsIn\":42}}"},
+			Type:     "room",
+			Players:  []PlayerView{{Id: "p1", Name: "alice", Score: 300, Gained: &gained, Status: "guessed"}},
+			Chat:     []ChatEntry{{Kind: "join", Id: "c1", Player: "alice"}},
+			Turn:     &turn,
+			Settings: settings,
+		}, "{\"type\":\"room\",\"players\":[{\"id\":\"p1\",\"name\":\"alice\",\"score\":300,\"gained\":180,\"status\":\"guessed\"}],\"chat\":[{\"kind\":\"join\",\"id\":\"c1\",\"player\":\"alice\"}],\"turn\":{\"round\":2,\"totalRounds\":3,\"phase\":\"drawing\",\"drawerId\":\"p2\",\"word\":null,\"hint\":\"s___b__t\",\"seconds\":80,\"endsIn\":42},\"settings\":{\"rounds\":3,\"drawSeconds\":80,\"maxPlayers\":12,\"hints\":2,\"wordSource\":\"default\",\"words\":[]}}"},
 		{"players", PlayersMessage{Type: "players", Players: []PlayerView{{Id: "p1", Name: "alice", Status: "drawing"}}}, "{\"type\":\"players\",\"players\":[{\"id\":\"p1\",\"name\":\"alice\",\"score\":0,\"gained\":null,\"status\":\"drawing\"}]}"},
 		{"chat/guess", ChatMessage{Type: "chat", Entry: ChatEntry{Kind: "guess", Id: "c2", PlayerId: "p1", Player: "alice", Text: "a boat?"}}, "{\"type\":\"chat\",\"entry\":{\"kind\":\"guess\",\"id\":\"c2\",\"playerId\":\"p1\",\"player\":\"alice\",\"text\":\"a boat?\"}}"},
 		{"chat/correct", ChatMessage{Type: "chat", Entry: ChatEntry{Kind: "correct", Id: "c3", PlayerId: "p1", Player: "alice"}}, "{\"type\":\"chat\",\"entry\":{\"kind\":\"correct\",\"id\":\"c3\",\"playerId\":\"p1\",\"player\":\"alice\"}}"},
@@ -56,6 +62,7 @@ func wireCases() []struct {
 		{"turn", TurnMessage{Type: "turn", Turn: turn}, "{\"type\":\"turn\",\"turn\":{\"round\":2,\"totalRounds\":3,\"phase\":\"drawing\",\"drawerId\":\"p2\",\"word\":null,\"hint\":\"s___b__t\",\"seconds\":80,\"endsIn\":42}}"},
 		{"turn/revealed", TurnMessage{Type: "turn", Turn: revealed}, "{\"type\":\"turn\",\"turn\":{\"round\":2,\"totalRounds\":3,\"phase\":\"reveal\",\"drawerId\":\"p2\",\"word\":\"sailboat\",\"hint\":\"s___b__t\",\"seconds\":5,\"endsIn\":0}}"},
 		{"turn/choosing", TurnMessage{Type: "turn", Turn: choosing}, "{\"type\":\"turn\",\"turn\":{\"round\":2,\"totalRounds\":3,\"phase\":\"choosing\",\"drawerId\":\"p2\",\"word\":null,\"hint\":\"\",\"choices\":[\"sailboat\",\"igloo\",\"narwhal\"],\"seconds\":15,\"endsIn\":12}}"},
+		{"settings", SettingsMessage{Type: "settings", Settings: custom}, "{\"type\":\"settings\",\"settings\":{\"rounds\":5,\"drawSeconds\":40,\"maxPlayers\":8,\"hints\":0,\"wordSource\":\"custom\",\"words\":[\"bagel\",\"kazoo\",\"tugboat\"]}}"},
 		{"hint", HintMessage{Type: "hint", Hint: "sa__b__t"}, "{\"type\":\"hint\",\"hint\":\"sa__b__t\"}"},
 		{"idle", IdleMessage{Type: "idle"}, "{\"type\":\"idle\"}"},
 		{"draw", DrawMessage{Type: "draw", Commands: []DrawCommand{
@@ -96,5 +103,13 @@ func TestEmptyListsAreArraysNotNull(t *testing.T) {
 	}
 	if _, ok := recv(t, player, "canvas")["commands"].([]any); !ok {
 		t.Error("canvas.commands is not an array")
+	}
+
+	settings, ok := snapshot["settings"].(map[string]any)
+	if !ok {
+		t.Fatalf("room.settings = %v, want an object", snapshot["settings"])
+	}
+	if _, ok := settings["words"].([]any); !ok {
+		t.Errorf("room.settings.words = %v, want an array", settings["words"])
 	}
 }

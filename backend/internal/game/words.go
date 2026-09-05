@@ -21,11 +21,16 @@ var words = []string{
 	"waterfall", "whale", "windmill", "wizard", "yo-yo", "zebra",
 }
 
-// pickWords deals the words a drawer chooses between, avoiding the ones a room
-// has used recently so a short game does not hand out the same thing twice —
-// and, since the words already dealt are held against the rest, never offering
-// the same word twice in one choice.
-func pickWords(recent []string, count int) []string {
+// pickWords deals the words a drawer chooses between, out of whichever list the
+// room is playing from — see Room.wordPool. It avoids the ones the room has
+// used recently, so a short game does not hand out the same thing twice, and
+// holds the words already dealt against the rest, so no choice offers the same
+// word twice.
+func pickWords(recent []string, count int, pool []string) []string {
+	if len(pool) == 0 {
+		pool = words
+	}
+
 	used := make(map[string]bool, len(recent)+count)
 	for _, word := range recent {
 		used[word] = true
@@ -33,23 +38,24 @@ func pickWords(recent []string, count int) []string {
 
 	choices := make([]string, 0, count)
 	for range count {
-		word := pickWord(used)
+		word := pickWord(used, pool)
 		used[word] = true
 		choices = append(choices, word)
 	}
 	return choices
 }
 
-// pickWord chooses one word that is not in `used`.
-func pickWord(used map[string]bool) string {
+// pickWord chooses one word from the pool that is not in `used`.
+func pickWord(used map[string]bool, pool []string) string {
 	// Bounded rather than a filtered copy: `used` is short and the list is
-	// long, so a handful of draws almost always lands on a free word. Falling
-	// through to a repeat is better than looping forever if it does not.
+	// usually long, so a handful of draws almost always lands on a free word.
+	// Falling through to a repeat is better than looping forever if it does not
+	// — which is the case a bank barely bigger than one choice runs into.
 	for range 20 {
-		word := words[rand.IntN(len(words))]
+		word := pool[rand.IntN(len(pool))]
 		if !used[word] {
 			return word
 		}
 	}
-	return words[rand.IntN(len(words))]
+	return pool[rand.IntN(len(pool))]
 }

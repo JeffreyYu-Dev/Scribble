@@ -80,6 +80,19 @@ export function useTurn() {
 }
 
 /**
+ * How the room is set up to play, and the host's way of changing it. Everyone
+ * reads it — the lobby shows the whole room what is coming — and the server is
+ * what decides whether a change from this player counts.
+ */
+export function useSettings() {
+	const client = useClient();
+	return {
+		settings: useStore(client.settings.state),
+		update: client.settings.update,
+	};
+}
+
+/**
  * The board's channel. Deliberately not a store: it is a stable object whose
  * strokes never pass through React at all.
  */

@@ -26,6 +26,8 @@ import type { ClientMessage, ServerMessage } from "#/lib/room/protocol.ts";
 import { parseServerMessage } from "#/lib/room/protocol.ts";
 import type { RoundStore } from "#/lib/room/round-store.ts";
 import { createRoundStore } from "#/lib/room/round-store.ts";
+import type { SettingsStore } from "#/lib/room/settings-store.ts";
+import { createSettingsStore } from "#/lib/room/settings-store.ts";
 import { claimedId, playerName } from "#/lib/storage.ts";
 
 export type RoomStatus =
@@ -55,6 +57,7 @@ export type RoomClient = {
 	players: PlayersStore;
 	chat: ChatStore;
 	round: RoundStore;
+	settings: SettingsStore;
 	canvas: CanvasBus;
 	/** Opens the socket. Returns a teardown; safe to call again afterwards. */
 	connect: () => () => void;
@@ -83,6 +86,7 @@ export function createRoomClient(code: string): RoomClient {
 	const players = createPlayersStore(dispatcher);
 	const chat = createChatStore(dispatcher, send);
 	const round = createRoundStore(dispatcher, send);
+	const settings = createSettingsStore(dispatcher, send);
 	const canvas = createCanvasBus(dispatcher, send);
 
 	dispatcher.on("joined", (message) => {
@@ -115,6 +119,7 @@ export function createRoomClient(code: string): RoomClient {
 		players,
 		chat,
 		round,
+		settings,
 		canvas,
 
 		connect() {

@@ -86,7 +86,7 @@ func (r *Room) nextTurn(now time.Time) {
 	if !ok {
 		r.round++
 		clear(r.drawn)
-		if r.round > TotalRounds {
+		if r.round > r.settings.Rounds {
 			// The scoreboard stays as it finished; startGame clears it.
 			r.idle()
 			return
@@ -122,7 +122,7 @@ func (r *Room) beginTurn(now time.Time, drawer uuid.UUID) {
 	r.drawer = drawer
 	r.drawn[drawer] = true
 
-	r.choices = pickWords(r.recent, WordChoices)
+	r.choices = pickWords(r.recent, WordChoices, r.wordPool())
 	r.word = ""
 	r.hint = nil
 	r.hintsAt = nil
@@ -166,8 +166,8 @@ func (r *Room) chooseWord(now time.Time, choice int) {
 
 	r.phase = phaseDrawing
 	r.hint = mask(r.word)
-	r.hintsAt = hintSchedule(now, r.word)
-	r.deadline = now.Add(TurnSeconds * time.Second)
+	r.hintsAt = hintSchedule(now, r.word, r.settings.Hints, r.turnLength())
+	r.deadline = now.Add(r.turnLength())
 
 	r.broadcastTurn(now)
 }
@@ -223,7 +223,7 @@ func (r *Room) turnView(player *Player) TurnView {
 
 	view := TurnView{
 		Round:       r.round,
-		TotalRounds: TotalRounds,
+		TotalRounds: r.settings.Rounds,
 		Phase:       r.phase.name(),
 		DrawerId:    r.drawer.String(),
 		Hint:        string(r.hint),
@@ -256,7 +256,12 @@ func (r *Room) phaseSeconds() int {
 	case phaseReveal:
 		return RevealSeconds
 	}
-	return TurnSeconds
+	return r.settings.DrawSeconds
+}
+
+// turnLength is how long a turn lasts, as the host set it.
+func (r *Room) turnLength() time.Duration {
+	return time.Duration(r.settings.DrawSeconds) * time.Second
 }
 
 func endsIn(deadline, now time.Time) int {
@@ -290,9 +295,12 @@ func mask(word string) []rune {
 	return masked
 }
 
-// hintSchedule spreads a third of the word evenly across the turn, always
-// keeping at least one letter back — a fully revealed word is not a hint.
-func hintSchedule(start time.Time, word string) []time.Time {
+// hintSchedule spreads the host's letters evenly across the turn, always
+// keeping at least one back — a fully revealed word is not a hint, so a short
+// word gives away less than a long one however high the setting is.
+//
+// `hints` of zero is a room that wants none, and gets none.
+func hintSchedule(start time.Time, word string, hints int, turn time.Duration) []time.Time {
 	letters := 0
 	for _, char := range word {
 		if !separator(char) {
@@ -300,12 +308,11 @@ func hintSchedule(start time.Time, word string) []time.Time {
 		}
 	}
 
-	count := min(max(letters/3, 1), letters-1)
+	count := min(hints, letters-1)
 	if count < 1 {
 		return nil
 	}
 
-	turn := TurnSeconds * time.Second
 	at := make([]time.Time, 0, count)
 	for i := 1; i <= count; i++ {
 		at = append(at, start.Add(turn*time.Duration(i)/time.Duration(count+1)))
@@ -421,7 +428,7 @@ func chatFrom(player *Player, text string) ChatEntry {
 func (r *Room) award(player *Player, now time.Time) {
 	player.Guessed = true
 
-	gain := guessScore(r.deadline.Sub(now))
+	gain := guessScore(r.deadline.Sub(now), r.turnLength())
 	player.Score += gain
 	player.Gained = &gain
 
@@ -437,8 +444,11 @@ func (r *Room) award(player *Player, now time.Time) {
 	drawer.Gained = &earned
 }
 
-func guessScore(remaining time.Duration) int {
-	left := float64(remaining) / float64(TurnSeconds*time.Second)
+// guessScore is the floor plus whatever is left on the clock, as a share of the
+// whole turn — so a short turn is worth the same as a long one, and lowering the
+// draw time does not quietly deflate the scoreboard.
+func guessScore(remaining, turn time.Duration) int {
+	left := float64(remaining) / float64(turn)
 	left = min(max(left, 0), 1)
 	return guessBase + int(math.Round(guessBonus*left))
 }

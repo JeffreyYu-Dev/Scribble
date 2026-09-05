@@ -70,6 +70,16 @@ type RoomLayoutProps = {
   /** Whether the local player is the one who can pick and start a game. */
   hosting: boolean;
   /**
+   * How the room is set up to play. The server owns it and sends it to
+   * everyone, so this is what the whole room reads — not only the host, who is
+   * simply the one `onSettingsChange` will be listened to from.
+   *
+   * Absent in the placeholder room, which has no server to hold them and keeps
+   * its own copy below instead.
+   */
+  settings?: GameSettings;
+  onSettingsChange?: (settings: GameSettings) => void;
+  /**
    * The host asking the server for a game. Absent in the placeholder room,
    * which has no server to ask — see the fallback where it is called.
    */
@@ -96,6 +106,8 @@ export function RoomLayout({
   onPick,
   live,
   hosting,
+  settings: roomSettings,
+  onSettingsChange,
   onStart,
   onGuess,
   onCommand,
@@ -106,7 +118,13 @@ export function RoomLayout({
   // Nothing until somebody picks: the lobby opens on the shelf of games rather
   // than on a game the room never chose.
   const [gameId, setGameId] = useState<string | null>(null);
-  const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
+  // The placeholder room's settings, and only its: with a server behind the
+  // room they arrive as a prop and this is never read. Held either way, so the
+  // hooks do not depend on which of the two rooms this is.
+  const [ownSettings, setOwnSettings] =
+    useState<GameSettings>(DEFAULT_SETTINGS);
+  const settings = roomSettings ?? ownSettings;
+  const changeSettings = onSettingsChange ?? setOwnSettings;
 
   /**
    * Where the game that has just finished has got to: `showing` while the
@@ -221,7 +239,7 @@ export function RoomLayout({
           settings={settings}
           hosting={hosting}
           canStart={players.length >= game.players.min}
-          onChange={setSettings}
+          onChange={changeSettings}
           onBack={() => setStage("lobby")}
           // Asking is all this does. Whether a game is on is the server's
           // call, and it answers by starting a turn — which takes every

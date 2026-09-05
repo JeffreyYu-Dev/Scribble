@@ -65,6 +65,11 @@ const (
 // looked up and being joined.
 var ErrRoomClosed = errors.New("room is closed")
 
+// ErrRoomFull is returned by Join when the room has as many players in it as
+// its host set it to hold. The room's creator is exempt: the seat they reserved
+// was theirs before anyone else took one.
+var ErrRoomFull = errors.New("room is full")
+
 type phase int
 
 const (
@@ -117,6 +122,10 @@ type Room struct {
 	owner      uuid.UUID
 	everJoined bool
 
+	// settings is what the host has the room set up to play. Only the host may
+	// change it, and only between games — see updateSettings.
+	settings Settings
+
 	chat    []chatLine
 	chatSeq int
 	canvas  []DrawCommand
@@ -152,6 +161,7 @@ func CreateRoom() (*Room, error) {
 		done:      make(chan struct{}),
 		players:   make(map[uuid.UUID]*Player),
 		drawn:     make(map[uuid.UUID]bool),
+		settings:  DefaultSettings(),
 	}, nil
 }
 
@@ -234,6 +244,9 @@ type joinCommand struct {
 type joinResult struct {
 	player *Player
 	owner  bool
+	// err is why the room would not take them, and is the only field set when
+	// it is non-nil.
+	err error
 }
 
 type leaveCommand struct{ id uuid.UUID }
@@ -265,7 +278,7 @@ func (r *Room) Join(username string, claim uuid.UUID) (*Player, bool, error) {
 
 	select {
 	case res := <-reply:
-		return res.player, res.owner, nil
+		return res.player, res.owner, res.err
 	case <-r.done:
 		return nil, false, ErrRoomClosed
 	}
@@ -316,6 +329,16 @@ func (c joinCommand) apply(r *Room) {
 		if _, taken := r.players[c.claim]; !taken {
 			id, creator = c.claim, true
 		}
+	}
+
+	// The host's cap on the room, enforced at the door rather than by throwing
+	// anyone out later — which is also why lowering it below the people already
+	// seated does nothing (see Settings.sanitize). The creator is let in
+	// regardless: their seat was reserved before anybody else took one, and a
+	// room whose owner cannot get into it has nobody to change the cap.
+	if !creator && len(r.players) >= r.settings.MaxPlayers {
+		c.reply <- joinResult{err: ErrRoomFull}
+		return
 	}
 
 	player := CreatePlayerWithId(id, c.username)
@@ -408,6 +431,8 @@ func (c frameCommand) apply(r *Room) {
 	switch msg.Type {
 	case "start":
 		r.start(player)
+	case "settings":
+		r.updateSettings(player, msg.Settings)
 	case "guess":
 		r.guess(player, msg.Text)
 	case "pick":
@@ -429,6 +454,23 @@ func (r *Room) start(player *Player) {
 		return
 	}
 	r.startGame(time.Now())
+}
+
+// updateSettings is the host turning one of the room's dials. Like `start`, it
+// is ignored from anyone else — and while a game is running, when changing the
+// number of rounds under a room halfway through one would be nobody's idea of a
+// setting.
+//
+// What comes back out is the sanitized settings rather than the ones asked for,
+// so every player — the host included — is looking at what the room will
+// actually play by rather than at what was typed.
+func (r *Room) updateSettings(player *Player, requested *Settings) {
+	if requested == nil || player.Id != r.owner || r.phase != phaseIdle {
+		return
+	}
+
+	r.settings = requested.sanitize(len(r.players))
+	r.broadcast(SettingsMessage{Type: "settings", Settings: r.settings})
 }
 
 // promoteOwner hands the room to whoever has been here longest, so a live room
@@ -492,9 +534,10 @@ func (r *Room) broadcastPlayers() {
 // between players, and only ever by leaving lines out.
 func (r *Room) snapshot(viewer *Player) Snapshot {
 	snap := Snapshot{
-		Type:    "room",
-		Players: r.playerViews(),
-		Chat:    r.chatView(viewer.Id),
+		Type:     "room",
+		Players:  r.playerViews(),
+		Chat:     r.chatView(viewer.Id),
+		Settings: r.settings,
 	}
 	if r.phase != phaseIdle {
 		// Nobody has joined as the drawer, so this view never carries the word.

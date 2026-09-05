@@ -352,8 +352,13 @@ func (ss *ScribbleServer) join(
 	}
 
 	// A room can stop between being found and being joined: the code was live a
-	// moment ago, and its last player has since left.
+	// moment ago, and its last player has since left. It can also simply be
+	// full, which is worth saying plainly — "no such room" would send a player
+	// off to check a code that was right all along.
 	player, _, err := room.Join(username, claim)
+	if errors.Is(err, game.ErrRoomFull) {
+		return nil, nil, errors.New("this room is full")
+	}
 	if err != nil {
 		return nil, nil, errors.New("no such room")
 	}
