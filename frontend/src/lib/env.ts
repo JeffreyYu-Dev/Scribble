@@ -21,9 +21,7 @@ const createEnv = () => {
   // Trailing slashes are trimmed here rather than trusted away: every caller
   // joins a path onto these with a slash of its own, and `.../lobby` and
   // `...//lobby` are different URLs to a Go mux — the second one 404s.
-  const url = z
-    .string()
-    .transform((value) => value.trim().replace(/\/+$/, ""));
+  const url = z.string().transform((value) => value.trim().replace(/\/+$/, ""));
 
   const envSchema = z.object({
     API_URL: url,

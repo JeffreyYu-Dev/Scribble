@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { PlayCard } from "#/components/home/play-card.tsx";
+import { RoadmapMap } from "#/components/home/roadmap-map.tsx";
 import { WordReveal } from "#/components/home/word-reveal.tsx";
 import { Badge } from "#/components/ui/badge.tsx";
 
@@ -26,6 +27,8 @@ function Home() {
         <Dot />
         <Stat>80 seconds a turn</Stat>
       </footer>
+
+      <RoadmapMap />
     </main>
   );
 }
