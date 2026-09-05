@@ -15,7 +15,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { GamePicker } from "#/components/room/game-picker.tsx";
 import { GameStage } from "#/components/room/game-stage.tsx";
 import { LobbyStage } from "#/components/room/lobby-stage.tsx";
 import { RoomShell } from "#/components/room/room-shell.tsx";
@@ -25,7 +24,7 @@ import { TurnOverlay } from "#/components/room/turn-overlay.tsx";
 import { TurnClock, TurnWord } from "#/components/room/turn-status.tsx";
 import { useRoundIntro } from "#/hooks/use-round-intro.ts";
 import type { DrawCommand } from "#/lib/drawing/types.ts";
-import { DEFAULT_GAME_ID, gameById, MINIGAMES } from "#/lib/room/games.ts";
+import { gameById, MINIGAMES } from "#/lib/room/games.ts";
 import { inkMap } from "#/lib/room/ink.ts";
 import type { TurnPhase } from "#/lib/room/round-store.ts";
 import type { GameSettings } from "#/lib/room/settings.ts";
@@ -104,11 +103,10 @@ export function RoomLayout({
   onLeave,
 }: RoomLayoutProps) {
   const [stage, setStage] = useState<Stage>(live ? "game" : "lobby");
-  const [gameId, setGameId] = useState(DEFAULT_GAME_ID);
+  // Nothing until somebody picks: the lobby opens on the shelf of games rather
+  // than on a game the room never chose.
+  const [gameId, setGameId] = useState<string | null>(null);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
-  // The shelf is not a stage of its own: it sits under the whole room and
-  // lifts it away, so the lobby is still what the room is on underneath.
-  const [picking, setPicking] = useState(false);
 
   /**
    * Where the game that has just finished has got to: `showing` while the
@@ -151,7 +149,7 @@ export function RoomLayout({
     return () => clearTimeout(id);
   }, [ending]);
 
-  const game = gameById(gameId);
+  const game = gameId ? gameById(gameId) : null;
   // Built from the roster as given, not from the scoreboard's order: colours
   // follow join order, so nobody's changes when the board reshuffles.
   const inks = inkMap(players);
@@ -172,9 +170,14 @@ export function RoomLayout({
       roster={stage === "game" ? "game" : "lobby"}
       onLeave={onLeave}
       status={
-        // Nothing left to count once the game is over: the clock comes down
+        // Which room this is, before there is a turn to count. Once there is,
+        // the clock takes the slot — until the game is over, when it comes down
         // with the last turn rather than sitting at zero behind the podium.
-        stage === "game" && ending === "none" ? (
+        stage !== "game" ? (
+          <span className="font-heading text-xs text-muted-foreground">
+            Lobby
+          </span>
+        ) : ending === "none" ? (
           <TurnClock
             round={round}
             totalRounds={totalRounds}
@@ -200,7 +203,9 @@ export function RoomLayout({
         ) : null
       }
       aside={
-        stage === "lobby" ? (
+        // Everywhere but the board, where the top bar says all of this in more
+        // detail and the rail is needed for the scoreboard.
+        stage !== "game" ? (
           <RoomSummary
             game={game}
             players={players.length}
@@ -209,33 +214,8 @@ export function RoomLayout({
           />
         ) : null
       }
-      lifted={picking}
-      below={
-        // Only ever reachable from the lobby, so it is only ever built
-        // there: no other stage has a handle that asks for it.
-        stage === "lobby" ? (
-          <GamePicker
-            games={MINIGAMES}
-            selected={game}
-            hosting={hosting}
-            onClose={() => setPicking(false)}
-            onSelect={(id) => {
-              setGameId(id);
-              setPicking(false);
-            }}
-          />
-        ) : null
-      }
     >
-      {stage === "lobby" ? (
-        <LobbyStage
-          selected={game}
-          hosting={hosting}
-          lifted={picking}
-          onContinue={() => setStage("settings")}
-          onOpenPicker={() => setPicking(true)}
-        />
-      ) : stage === "settings" ? (
+      {stage === "settings" && game ? (
         <SettingsStage
           game={game}
           settings={settings}
@@ -250,7 +230,7 @@ export function RoomLayout({
           // and so walks itself over instead.
           onStart={() => (onStart ? onStart() : setStage("game"))}
         />
-      ) : (
+      ) : stage === "game" ? (
         <GameStage
           chat={chat}
           inks={inks}
@@ -301,6 +281,14 @@ export function RoomLayout({
               }}
             />
           }
+        />
+      ) : (
+        <LobbyStage
+          games={MINIGAMES}
+          selected={game}
+          hosting={hosting}
+          onSelect={setGameId}
+          onContinue={() => setStage("settings")}
         />
       )}
     </RoomShell>

@@ -2,9 +2,9 @@
  * The games a room can play.
  *
  * One record per minigame, in the order the lobby grid lays them out. Every
- * part of the lobby reads from here — the tile, the stage panel above it and
- * the summary card beside the roster — so adding a game is adding a row rather
- * than touching three components.
+ * part of the lobby reads from here — the tile, the panel that tile grows into
+ * and the summary card beside the roster — so adding a game is adding a row
+ * rather than touching three components.
  *
  * The room holds one of these at a time, which is why the id is what gets
  * passed around: the selection is a string the server will eventually own, and
