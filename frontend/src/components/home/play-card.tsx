@@ -35,9 +35,12 @@ import {
   playerNameSchema,
   roomCodeSchema,
 } from "#/lib/schemas.ts";
-import { rememberOwnership, savePlayerName } from "#/lib/storage.ts";
-
-const NAME_KEY = "scribble:name";
+import {
+  rememberJoinName,
+  rememberOwnership,
+  savePlayerName,
+  storedName,
+} from "#/lib/storage.ts";
 
 export function PlayCard() {
   const [name, setName] = useState("");
@@ -49,12 +52,11 @@ export function PlayCard() {
 
   const navigate = useNavigate();
 
-  // Read on the client only: the shell is server-rendered. Whatever is in
-  // storage is untrusted -- an older build or a hand-edited value could leave
-  // something the current rules reject -- so fall back to a fresh name.
+  // Read on the client only: the shell is server-rendered, where storage does
+  // not exist. A device with nothing remembered gets a fresh name rather than
+  // an empty field -- nobody should have to think of one to play.
   useEffect(() => {
-    const stored = playerNameSchema.safeParse(localStorage.getItem(NAME_KEY));
-    setName(stored.success ? stored.data : randomName());
+    setName(storedName() ?? randomName());
   }, []);
 
   function commitName() {
@@ -77,6 +79,9 @@ export function PlayCard() {
       // Kept out of the URL and handed straight to the socket on the room
       // page: this id is what makes us the owner of the room we just made.
       rememberOwnership(lobby.code, lobby.playerId);
+      // Asked and answered here, so the room takes us straight in instead of
+      // stopping at its own name card.
+      rememberJoinName(lobby.code, player);
       navigate({ to: "/room", search: { scribble: lobby.code } });
     } catch (error) {
       setCreateError(
@@ -95,6 +100,8 @@ export function PlayCard() {
 
     // Joining is just the room page with a code: whether the room exists is
     // settled by the socket there, which is the only thing that can answer.
+    // The name is not its question to ask, though -- it was answered above.
+    rememberJoinName(room.data, player);
     navigate({ to: "/room", search: { scribble: room.data } });
   }
 

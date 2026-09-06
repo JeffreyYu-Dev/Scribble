@@ -30,15 +30,21 @@ function useClient() {
 
 export function RoomProvider({
 	code,
+	name,
 	children,
 }: {
 	code: string;
+	/**
+	 * Who to join as. Settled by the route before this mounts, because the
+	 * server takes the name off the join message and never revisits it.
+	 */
+	name: string;
 	children: React.ReactNode;
 }) {
 	// Built during render, not in the effect: the stores have to exist before
 	// the children that read them do. It is inert until `connect` is called.
 	const clientRef = useRef<RoomClient | null>(null);
-	if (!clientRef.current) clientRef.current = createRoomClient(code);
+	if (!clientRef.current) clientRef.current = createRoomClient(code, name);
 	const client = clientRef.current;
 
 	useEffect(() => client.connect(), [client]);

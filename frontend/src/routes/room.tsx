@@ -1,6 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { JoinGate } from "#/components/room/join-gate.tsx";
 import { RoomLayout } from "#/components/room/room-layout.tsx";
 import {
   RoomProvider,
@@ -27,6 +28,7 @@ import {
   MOCK_WORD,
 } from "#/lib/room/mock.ts";
 import { roomCodeSchema } from "#/lib/schemas.ts";
+import { joinName } from "#/lib/storage.ts";
 
 /** `scribble` is absent for the placeholder room, so the search is optional. */
 type RoomSearch = { scribble?: string };
@@ -64,10 +66,37 @@ function RoomRoute() {
   // life off the mock data: no socket, no server, just the layout.
   if (!scribble) return <DemoRoom />;
 
-  // Keyed by code so switching rooms rebuilds the provider (and its socket)
-  // instead of reusing one pointed at the old room.
+  // Keyed by code so switching rooms starts the whole arrival over — the name
+  // asked for again if it has to be, and a provider (with its socket) built
+  // from scratch rather than one still pointed at the old room.
+  return <JoinFlow key={scribble} code={scribble} />;
+}
+
+/**
+ * Settles who is arriving before anything connects.
+ *
+ * The name goes out in the join message and the server fixes it there, so the
+ * one place it can still be chosen is ahead of the socket. Players who came
+ * through the home card answered on the way, and a tab that has already joined
+ * this room answered before the reload; a link is the case with no answer yet,
+ * and the only one that stops to ask.
+ */
+function JoinFlow({ code }: { code: string }) {
+  // `undefined` while the answer is still being looked up — it lives in this
+  // tab's storage, which the server render cannot see — and `null` once it is
+  // settled that there isn't one.
+  const [name, setName] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => setName(joinName(code)), [code]);
+
+  if (name === undefined) {
+    return <RoomNotice title={`Room ${code}`} description="One moment…" />;
+  }
+
+  if (name === null) return <JoinGate code={code} onJoin={setName} />;
+
   return (
-    <RoomProvider key={scribble} code={scribble}>
+    <RoomProvider code={code} name={name}>
       <RoomGate />
     </RoomProvider>
   );
@@ -87,28 +116,46 @@ function RoomGate() {
   const closed = status === "closed";
 
   return (
+    <RoomNotice
+      title={closed ? "Room unavailable" : "Joining the room"}
+      description={
+        closed
+          ? (error ?? "The connection dropped.")
+          : status === "reconnecting"
+            ? "Lost the connection — getting you back…"
+            : "Connecting to the server…"
+      }
+    >
+      {closed ? (
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate({ to: "/" })}>
+            Back home
+          </Button>
+          <Button onClick={retry}>Try again</Button>
+        </div>
+      ) : null}
+    </RoomNotice>
+  );
+}
+
+/** The page a room stands behind while it is not yet, or no longer, a room. */
+function RoomNotice({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children?: React.ReactNode;
+}) {
+  return (
     <main className="flex min-h-svh items-center justify-center p-4">
       <Empty className="max-w-sm">
         <EmptyHeader>
-          <EmptyTitle>
-            {closed ? "Room unavailable" : "Joining the room"}
-          </EmptyTitle>
-          <EmptyDescription>
-            {closed
-              ? (error ?? "The connection dropped.")
-              : status === "reconnecting"
-                ? "Lost the connection — getting you back…"
-                : "Connecting to the server…"}
-          </EmptyDescription>
+          <EmptyTitle>{title}</EmptyTitle>
+          <EmptyDescription>{description}</EmptyDescription>
         </EmptyHeader>
-        {closed ? (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate({ to: "/" })}>
-              Back home
-            </Button>
-            <Button onClick={retry}>Try again</Button>
-          </div>
-        ) : null}
+        {children}
       </Empty>
     </main>
   );

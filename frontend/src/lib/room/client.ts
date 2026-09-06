@@ -28,7 +28,7 @@ import type { RoundStore } from "#/lib/room/round-store.ts";
 import { createRoundStore } from "#/lib/room/round-store.ts";
 import type { SettingsStore } from "#/lib/room/settings-store.ts";
 import { createSettingsStore } from "#/lib/room/settings-store.ts";
-import { claimedId, playerName } from "#/lib/storage.ts";
+import { claimedId } from "#/lib/storage.ts";
 
 export type RoomStatus =
 	/** Socket opening. */
@@ -65,7 +65,12 @@ export type RoomClient = {
 	retry: () => void;
 };
 
-export function createRoomClient(code: string): RoomClient {
+/**
+ * `name` is settled before this is called and never changes afterwards: the
+ * server fixes a player's name at join, so a client is built for one name in
+ * one room and a different answer to either means a different client.
+ */
+export function createRoomClient(code: string, name: string): RoomClient {
 	const connection = createStore<Connection>({
 		status: "connecting",
 		playerId: null,
@@ -131,7 +136,7 @@ export function createRoomClient(code: string): RoomClient {
 				handshake: (): ClientMessage => ({
 					type: "join",
 					code,
-					username: playerName(),
+					username: name,
 					// Only the tab that created this lobby has an id to claim.
 					playerId: claimedId(code) ?? undefined,
 				}),
